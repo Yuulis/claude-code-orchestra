@@ -59,6 +59,17 @@ codex exec --model "${CODEX_MODEL:-gpt-5.5}" --sandbox workspace-write "{task}" 
 - Trade-offs: "Which approach is better?"
 - Code review: "Review this implementation"
 
+## Calling Antigravity CLI (Cross-Model Second Opinion)
+
+When the orchestrator asks for an independent second opinion on a design/plan
+(policy: `.claude/rules/antigravity-delegation.md`):
+
+```bash
+agy --model "${ANTIGRAVITY_MODEL:-gemini-3.1-pro}" --sandbox -p "{decision + proposal + constraints}" 2>/dev/null
+```
+
+Antigravity verifies — it does not author. Return verdict + top risks concisely.
+
 ## Research & Investigation
 
 Use WebSearch and WebFetch for external research:

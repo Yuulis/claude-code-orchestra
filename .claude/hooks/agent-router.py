@@ -57,6 +57,19 @@ OPUS_RESEARCH_TRIGGERS = {
     ],
 }
 
+# Triggers for Antigravity (cross-model second opinion, Gemini 3.x)
+ANTIGRAVITY_TRIGGERS = {
+    "ja": [
+        "セカンドオピニオン", "別のモデル", "他のモデル",
+        "クロスチェック", "geminiに聞", "独立検証", "独立した検証",
+    ],
+    "en": [
+        "second opinion", "cross-check", "cross check",
+        "another model", "different model", "ask gemini", "ask antigravity",
+        "independent verification", "independent review", "final review gate",
+    ],
+}
+
 # Triggers for Codex Plugin commands (review, rescue, delegation)
 CODEX_PLUGIN_TRIGGERS = {
     "ja": [
@@ -80,6 +93,13 @@ def detect_agent(prompt: str) -> tuple[str | None, str]:
     Returns (agent, trigger).
     """
     prompt_lower = prompt.lower()
+
+    # Antigravity triggers first (explicit second-opinion requests are specific;
+    # generic words like "review" would otherwise route them to Codex)
+    for triggers in ANTIGRAVITY_TRIGGERS.values():
+        for trigger in triggers:
+            if trigger in prompt_lower:
+                return "antigravity", trigger
 
     # Codex triggers (planning, design, debug, complex code)
     for triggers in CODEX_TRIGGERS.values():
@@ -138,6 +158,21 @@ def main():
                         "`/codex:adversarial-review` (design challenge), "
                         "`/codex:rescue` (task delegation). "
                         "Add `--background` for async execution, check with `/codex:status`."
+                    )
+                }
+            }
+            print(json.dumps(output))
+
+        elif agent == "antigravity":
+            output = {
+                "hookSpecificOutput": {
+                    "hookEventName": "UserPromptSubmit",
+                    "additionalContext": (
+                        f"[Antigravity] Detected '{trigger}' — a cross-model second opinion "
+                        "was requested. Use Antigravity CLI (Gemini 3.x): "
+                        "`agy --model \"${ANTIGRAVITY_MODEL:-gemini-3.1-pro}\" --sandbox -p "
+                        '"{decision + proposal + constraints}"`. '
+                        "Policy: .claude/rules/antigravity-delegation.md."
                     )
                 }
             }

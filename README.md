@@ -6,7 +6,8 @@ Multi-Agent AI Development Environment
 
 ```
 Claude Code (Orchestrator) ─┬─ Codex CLI (Planning & Complex Code)
-                             └─ Opus Subagents (Research, Analysis, Implementation)
+                             ├─ Opus Subagents (Research, Analysis, Implementation)
+                             └─ Antigravity CLI (Cross-Model Second Opinions — optional)
 ```
 
 ## Quick Start
@@ -32,6 +33,20 @@ claude login
 npm install -g @openai/codex
 codex login
 ```
+
+### Antigravity CLI (Optional)
+
+Google's Antigravity CLI (`agy`, successor to Gemini CLI) provides cross-model second
+opinions — independent Gemini 3.x review of high-stakes designs/plans and tiebreaks
+between competing approaches. The orchestra works without it; when absent, reviews
+fall back to Codex-only.
+
+```bash
+curl -fsSL https://antigravity.google/cli/install.sh | bash
+agy --version && agy models   # verify install + auth
+```
+
+Policy: `.claude/rules/antigravity-delegation.md` (when) / `.claude/skills/antigravity-system/` (how).
 
 ### Codex Plugin for Claude Code (Optional)
 
@@ -61,15 +76,18 @@ claude update
 
 # Codex CLI
 npm install -g @openai/codex@latest
+
+# Antigravity CLI (if installed)
+agy update
 ```
 
 Confirm versions afterward:
 
 ```bash
-claude --version && codex --version
+claude --version && codex --version && agy --version
 ```
 
-The Codex model is centralized in `.claude/settings.json` (`env.CODEX_MODEL`), which every `${CODEX_MODEL:-...}` reference resolves to. To always use the latest model, bump that single value (e.g. `gpt-5.5`) — no need to edit individual skill files. The `${CODEX_MODEL:-...}` fallback is just a default for when the env var is unset.
+The Codex and Antigravity models are centralized in `.claude/settings.json` (`env.CODEX_MODEL` / `env.ANTIGRAVITY_MODEL`), which every `${CODEX_MODEL:-...}` / `${ANTIGRAVITY_MODEL:-...}` reference resolves to. To always use the latest model, bump those single values (e.g. `gpt-5.5`, `gemini-3.1-pro`) — no need to edit individual skill files. The `${...:-default}` fallback is just a default for when the env var is unset.
 
 ## Architecture
 
@@ -108,6 +126,7 @@ To conserve the main orchestrator's (Opus, 1M context) context, large-scale task
 | Multimodal files (PDF/images) | Claude directly, or Opus subagent for large-scale analysis |
 | Code implementation | Via subagent (Opus) |
 | Design & planning consultation | Subagent → Codex |
+| Second opinion on high-stakes design/plan | Subagent → Antigravity CLI (`agy`) |
 | Short questions & answers | Direct call OK |
 | Detailed analysis needed | Via subagent → save to file |
 
@@ -128,7 +147,7 @@ To conserve the main orchestrator's (Opus, 1M context) context, large-scale task
 │   │   ├── general-purpose.md   # Implementation, research & Codex delegation agent (Opus)
 │   │   └── codex-debugger.md    # Error analysis agent (Opus)
 │   │
-│   ├── skills/                  # Reusable workflows (14 total)
+│   ├── skills/                  # Reusable workflows (15 total)
 │   │   ├── feature/             # Feature planning (existing/greenfield modes + complexity routing)
 │   │   ├── team-execute/        # Parallel implementation + parallel review with Agent Teams
 │   │   ├── spike/               # Technical investigation & feasibility study (decision document)
@@ -136,6 +155,7 @@ To conserve the main orchestrator's (Opus, 1M context) context, large-scale task
 │   │   ├── tdd/                 # Test-driven development
 │   │   ├── simplify/            # Code refactoring
 │   │   ├── codex-system/        # Codex CLI integration
+│   │   ├── antigravity-system/  # Antigravity CLI integration (cross-model second opinions)
 │   │   ├── design-tracker/      # Detect & record design decisions into DESIGN.md
 │   │   ├── research-lib/        # Library research
 │   │   ├── update-lib-docs/     # Library documentation updates
@@ -164,7 +184,7 @@ To conserve the main orchestrator's (Opus, 1M context) context, large-scale task
 │   │   └── libraries/           # Library constraints
 │   │
 │   └── logs/                    # Runtime generated (.gitignore target)
-│       └── cli-tools.jsonl      # Codex I/O logs
+│       └── cli-tools.jsonl      # Codex / Antigravity I/O logs
 │
 ├── .codex/                      # Codex CLI configuration
 │   ├── AGENTS.md

@@ -59,7 +59,7 @@ def count_lines(content: str) -> int:
     """Count meaningful lines in content."""
     lines = content.split("\n")
     # Count non-empty, non-comment lines
-    meaningful = [l for l in lines if l.strip() and not l.strip().startswith("#")]
+    meaningful = [ln for ln in lines if ln.strip() and not ln.strip().startswith("#")]
     return len(meaningful)
 
 

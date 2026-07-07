@@ -43,7 +43,7 @@ Delegation policy — when to consult, when NOT to, and trigger criteria — liv
 ### Subagent Pattern (Recommended)
 
 ```
-Task tool parameters:
+Agent tool parameters:
 - subagent_type: "general-purpose"
 - run_in_background: true (optional)
 - prompt: |

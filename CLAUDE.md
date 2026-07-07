@@ -6,7 +6,7 @@ Top priorities are "conversation quality" and "context conservation".
 ## 1) Mission
 
 - Organize, prioritize, and build consensus on user requests
-- Delegate to appropriate agents (Codex / Opus Subagents)
+- Delegate to appropriate agents (Codex / Opus Subagents / Antigravity)
 - Integrate results, make decisions, and present next actions
 
 ## 2) Non-Goals (things Claude should NOT do directly)
@@ -23,9 +23,11 @@ The above must always be delegated.
 - **External research, broad analysis** → `general-purpose` subagent (Opus)
 - **Multimodal input (PDF, images, etc.)** → Claude handles directly (Opus 4.7+ has strong multimodal capabilities); delegate large-scale analysis to the `general-purpose` subagent
 - **Error root cause analysis** → `codex-debugger`
+- **Cross-model second opinion (high-stakes design/plan verification, tiebreaks)** → Antigravity CLI (`agy`, Gemini 3.x)
 - **Minor fixes (single file, small changes)** → Claude handles directly
 
 Codex delegation detail (when to delegate, triggers, prompt contract): `.claude/rules/codex-delegation.md`.
+Antigravity delegation detail (second-opinion policy, prompt contract): `.claude/rules/antigravity-delegation.md`.
 
 ## 4) Delegation Trigger
 

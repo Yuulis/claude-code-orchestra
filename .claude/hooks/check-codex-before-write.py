@@ -7,9 +7,7 @@ for design decisions, complex implementations, or architectural changes.
 """
 
 import json
-import os
 import sys
-from pathlib import Path
 
 # Input validation constants
 MAX_PATH_LENGTH = 4096
@@ -70,8 +68,6 @@ SIMPLE_EDIT_PATTERNS = [
 
 def should_suggest_codex(file_path: str, content: str | None = None) -> tuple[bool, str]:
     """Determine if Codex consultation should be suggested."""
-    path = Path(file_path)
-    filename = path.name.lower()
     filepath_lower = file_path.lower()
 
     # Skip simple edits

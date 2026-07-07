@@ -40,6 +40,7 @@ Do NOT delegate to Codex when:
 - git commit, test execution, lint
 - **Codebase analysis** → general-purpose subagent (Opus 1M context)
 - **External information retrieval / web research** → general-purpose subagent (Opus, WebSearch/WebFetch)
+- **Second opinion on an already-completed design/plan** → Antigravity CLI (`.claude/rules/antigravity-delegation.md`)
 
 ## Prompt Contract (Always Include)
 

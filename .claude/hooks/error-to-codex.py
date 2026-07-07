@@ -33,6 +33,7 @@ IGNORE_COMMANDS = [
     "git log",
     "git diff",
     "git branch",
+    "git show",
     "ls",
     "pwd",
     "cat",
@@ -42,7 +43,16 @@ IGNORE_COMMANDS = [
     "which",
     "type",
     "true",
+    "grep",
+    "rg",
 ]
+
+# Read-only commands that display file/history content — their output routinely
+# contains error-looking text (docs, old commits) without anything being wrong.
+# Matched anywhere in the command line, tolerating flags like `git -C path show`.
+DISPLAY_COMMAND_RE = re.compile(
+    r"\b(?:git\s+(?:-\S+\s+|-C\s+\S+\s+)*(?:show|log|diff|blame)|grep|rg)\b"
+)
 
 # Outputs to ignore (trivial / expected errors)
 IGNORE_OUTPUTS = [
@@ -54,9 +64,10 @@ IGNORE_OUTPUTS = [
     "Everything up-to-date",
 ]
 
-# Skip if the command itself is a Codex call (avoid recursive suggestions)
+# Skip if the command itself is an external CLI call (avoid recursive suggestions)
 SKIP_COMMANDS = [
     "codex ",
+    "agy ",
 ]
 
 MIN_OUTPUT_LENGTH = 20
@@ -71,6 +82,8 @@ def should_ignore_command(command: str) -> bool:
     for skip in SKIP_COMMANDS:
         if skip in command_stripped:
             return True
+    if DISPLAY_COMMAND_RE.search(command_stripped):
+        return True
     return False
 
 
