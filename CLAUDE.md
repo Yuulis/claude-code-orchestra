@@ -19,13 +19,16 @@ The above must always be delegated.
 
 ## 3) Routing Policy
 
-- **Design, planning, complex implementation** → Codex via `general-purpose`
-- **External research, broad analysis** → `general-purpose` subagent (Opus)
+- **Planning** → Claude leads and finalizes; consult Codex (sol, high effort) as a design consultant for complex/high-stakes design (architecture, data model, security-sensitive)
+- **Implementation** → Codex subagent (via `general-purpose` or direct `codex exec`)
+- **Code review** → Claude subagents: Sonnet by default, Opus for high-risk changes; `/codex:review` as an additional cross-tool lane for high-risk diffs
+- **External research, broad analysis** → `general-purpose` subagent (Opus); Antigravity may assist in the information-gathering phase as needed
 - **Multimodal input (PDF, images, etc.)** → Claude handles directly (Opus 4.7+ has strong multimodal capabilities); delegate large-scale analysis to the `general-purpose` subagent
 - **Error root cause analysis** → `codex-debugger`
 - **Cross-model second opinion (high-stakes design/plan verification, tiebreaks)** → Antigravity CLI (`agy`, Gemini 3.x)
 - **Minor fixes (single file, small changes)** → Claude handles directly
 
+Model/effort lane map (SSOT, incl. Codex-side sol/terra/luna routing): `.claude/rules/model-routing.md`.
 Codex delegation detail (when to delegate, triggers, prompt contract): `.claude/rules/codex-delegation.md`.
 Antigravity delegation detail (second-opinion policy, prompt contract): `.claude/rules/antigravity-delegation.md`.
 
@@ -72,7 +75,7 @@ See `.claude/rules/language.md` (SSOT): think in English, respond to the user in
 - Python environment uses `uv` (do not use `pip` directly)
 - Existing rules in `.claude/rules/` take highest priority
 - Research notes are stored in `.claude/docs/research/` (keep empty when distributing templates)
-- Document map: `CLAUDE.md` = orchestrator contract; `.claude/docs/DESIGN.md` = 要件定義書 (macro requirements/design); `PROGRESS.md` = micro work progress (latest 5 checkpoints).
+- Document map: `CLAUDE.md` = orchestrator contract; `.claude/docs/DESIGN.md` = 要件定義書 (macro requirements/design); `PROGRESS.md` = micro work progress (latest 5 checkpoints); `docs/manual/<theme>/` = Japanese spec/status summaries (`.claude/rules/manual-docs.md`).
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # @orchestra:template-boundary

@@ -120,9 +120,11 @@ def main():
                     "hookEventName": "PostToolUse",
                     "additionalContext": (
                         f"[Code Review Suggestion] {reason} in this session. "
-                        "Consider having Codex review the implementation. "
-                        "**Recommended**: Use Task tool with subagent_type='general-purpose' "
-                        "to consult Codex with git diff and preserve main context."
+                        "Consider a review of the implementation: default lane is a "
+                        "Claude Sonnet subagent (Opus for high-risk: security, "
+                        "architecture, data model). For high-risk diffs, additionally "
+                        "consider `/codex:review` as a cross-tool lane "
+                        "(lanes: .claude/rules/model-routing.md)."
                     )
                 }
             }

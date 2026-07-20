@@ -63,8 +63,11 @@ def main():
                 "hookSpecificOutput": {
                     "hookEventName": "PostToolUse",
                     "additionalContext": (
-                        f"[Codex Review Suggestion] {reason}. "
-                        "Consider having Codex review this plan for potential improvements. "
+                        f"[Codex Consultation Suggestion] {reason}. "
+                        "Claude owns and finalizes the plan. If it involves high-stakes "
+                        "design (architecture, data model, security-sensitive), consider "
+                        "a Codex design consultation before finalizing "
+                        "(lanes: .claude/rules/model-routing.md). "
                         "**Recommended**: Use Task tool with subagent_type='general-purpose' "
                         "to consult Codex and preserve main context."
                     )

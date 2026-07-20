@@ -87,7 +87,7 @@ Confirm versions afterward:
 claude --version && codex --version && agy --version
 ```
 
-The Codex and Antigravity models are centralized in `.claude/settings.json` (`env.CODEX_MODEL` / `env.ANTIGRAVITY_MODEL`), which every `${CODEX_MODEL:-...}` / `${ANTIGRAVITY_MODEL:-...}` reference resolves to. To always use the latest model, bump those single values (e.g. `gpt-5.5`, `gemini-3.1-pro`) — no need to edit individual skill files. The `${...:-default}` fallback is just a default for when the env var is unset.
+The Codex and Antigravity models are centralized in `.claude/settings.json` (`env.CODEX_MODEL` / `env.ANTIGRAVITY_MODEL`), which every `${CODEX_MODEL:-...}` / `${ANTIGRAVITY_MODEL:-...}` reference resolves to. To always use the latest model, bump those single values (e.g. `gpt-5.6-sol`, `gemini-3.1-pro`) — no need to edit individual skill files. The `${...:-default}` fallback is just a default for when the env var is unset. Additional lane variables: `CODEX_MODEL_TERRA` / `CODEX_MODEL_LUNA` (everyday / mechanical alternates), `CODEX_RESCUE_MODEL`, and the effort defaults `CODEX_PLAN_EFFORT` / `CODEX_IMPL_EFFORT` — the full lane map lives in `.claude/rules/model-routing.md`.
 
 ## Architecture
 

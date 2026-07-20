@@ -2,7 +2,9 @@
 # This file enables project-specific Codex settings
 
 # Default model configuration
-model = "gpt-5.5"
+# Top-level Codex acts as planner: sol at high effort (see AGENTS.md §8).
+# Implementation/review sub-invocations downshift via -c model_reasoning_effort=...
+model = "gpt-5.6-sol"
 model_reasoning_effort = "high"
 model_reasoning_summary = "detailed"
 

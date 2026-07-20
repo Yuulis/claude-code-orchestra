@@ -65,6 +65,10 @@ Phase 2: REVIEW
 
 # Phase 1: IMPLEMENT
 
+> Phase 1 is the explicit opt-in heavyweight path (parallel Claude teammates for
+> COMPLEX features). The default implementation lane for ordinary changes remains
+> the Codex subagent (`.claude/rules/model-routing.md`) — the two do not conflict.
+
 ## Step 1-1: Analyze Plan & Design Team
 
 **Identify parallelizable workstreams from the task list.**
@@ -119,9 +123,11 @@ Each teammate receives:
 - Library constraints from .claude/docs/libraries/
 - Their specific task assignments
 
-Spawn teammates:
+Spawn teammates (set the Agent tool's `model` parameter explicitly — the global
+`CLAUDE_CODE_SUBAGENT_MODEL` is intentionally unset; see
+`.claude/rules/model-routing.md`):
 
-1. **Implementer-{module}** for each module/workstream
+1. **Implementer-{module}** for each module/workstream (model: opus)
    Prompt: "You are implementing {module} for project: {feature}.
 
    Read these files for context:
@@ -286,6 +292,14 @@ Exit codes: `0` normal · `1` not a git repo or base ref missing. Pass the
 
 **Launch reviewers with specialized perspectives in parallel.**
 
+Reviewer models (per `.claude/rules/model-routing.md`): spawn the **Security
+Reviewer with the Opus model** (high-risk lane) and the **Quality and Test
+Reviewers with the Sonnet model** (default review lane) — set the Agent tool's
+`model` parameter per reviewer (`opus` / `sonnet`); do not rely on the global
+`CLAUDE_CODE_SUBAGENT_MODEL`. For high-risk diffs (security-sensitive,
+architecture, data model), additionally consider `/codex:review` as a
+cross-tool lane.
+
 ```
 Create an agent team to review implementation of: {feature}
 
@@ -294,7 +308,7 @@ The following files were changed:
 
 Spawn reviewers:
 
-1. **Security Reviewer**
+1. **Security Reviewer** (model: opus)
    Prompt: "You are a Security Reviewer for: {feature}.
 
    Review all changed files for security vulnerabilities:
@@ -324,7 +338,7 @@ Spawn reviewers:
    Review Scope + Findings instead of Tasks Completed).
    "
 
-2. **Quality Reviewer**
+2. **Quality Reviewer** (model: sonnet)
    Prompt: "You are a Quality Reviewer for: {feature}.
 
    Review all changed files for code quality:
@@ -338,7 +352,7 @@ Spawn reviewers:
    - Library constraint violations (.claude/docs/libraries/)
 
    Use Codex CLI for deep analysis of complex logic:
-   codex exec --model "${CODEX_MODEL:-gpt-5.5}" --sandbox read-only "{question}" 2>/dev/null
+   codex exec --model "${CODEX_MODEL:-gpt-5.6-sol}" -c model_reasoning_effort="${CODEX_IMPL_EFFORT:-medium}" --sandbox read-only "{question}" 2>/dev/null
 
    Changed files: {list}
 
@@ -360,7 +374,7 @@ Spawn reviewers:
    - {question asked to Codex}: {key insight from response}
    "
 
-3. **Test Reviewer**
+3. **Test Reviewer** (model: sonnet)
    Prompt: "You are a Test Reviewer for: {feature}.
 
    Review test coverage and quality:

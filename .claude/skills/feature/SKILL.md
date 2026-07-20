@@ -4,8 +4,9 @@ description: |
   Unified feature planning & implementation skill — replaces the old /add-feature and
   /start-feature skills (both trigger phrases still apply here).
   MODE=existing (formerly /add-feature): add a feature to an established codebase with
-  Codex-first collaboration — Codex is consulted in every phase for scope analysis,
-  architecture design, implementation planning, and validation.
+  Claude-led planning and Codex consultation — Codex is consulted in every phase for
+  scope analysis, architecture design, implementation planning, and validation, while
+  Claude owns and finalizes the plan.
   MODE=greenfield (formerly /start-feature): start a large or new feature that requires
   external research — Agent Teams (Researcher + Architect) do parallel research & design.
   Both modes share Phase 3 complexity routing (SIMPLE: Codex direct, MODERATE: Codex +
@@ -136,11 +137,13 @@ Claude may supplement the subagent's analysis with targeted Glob/Grep/Read on sp
 
 ### Codex Consult Protocol
 
-Every Codex consultation in this skill uses the same wrapper (read-only for
-analysis/design; workspace-write only for implementation in Phase 3):
+Codex is a design consultant here: it proposes, Claude decides and owns the plan
+(lane map: `.claude/rules/model-routing.md`). Every Codex consultation in this
+skill uses the same wrapper (read-only for analysis/design; workspace-write only
+for implementation in Phase 3):
 
 ```bash
-codex exec --model "${CODEX_MODEL:-gpt-5.5}" --sandbox read-only "{prompt}" 2>/dev/null
+codex exec --model "${CODEX_MODEL:-gpt-5.6-sol}" -c model_reasoning_effort="${CODEX_PLAN_EFFORT:-high}" --sandbox read-only "{prompt}" 2>/dev/null
 ```
 
 Prompts below show only the prompt body (Objective / Context / Constraints /
@@ -290,7 +293,7 @@ This brief is passed to Phase 2E for design.
 
 ## MODE=existing — Phase 2E: DESIGN (Codex Architecture + Plan + Validation)
 
-**Codex designs the architecture, creates an implementation plan, and validates completeness. All three consultations are MANDATORY.**
+**Codex proposes the architecture and implementation plan and validates completeness; Claude reviews, adjusts, and owns the final plan. All three consultations are MANDATORY.**
 
 > Unlike MODE=greenfield which uses Agent Teams (Researcher + Architect) for design,
 > MODE=existing uses Codex directly because the patterns and conventions are already established.
@@ -471,7 +474,7 @@ Spawn two teammates:
    4. Identify risks and mitigation strategies
 
    How to consult Codex:
-   codex exec --model "${CODEX_MODEL:-gpt-5.5}" --sandbox read-only "{question}" 2>/dev/null
+   codex exec --model "${CODEX_MODEL:-gpt-5.6-sol}" -c model_reasoning_effort="${CODEX_PLAN_EFFORT:-high}" --sandbox read-only "{question}" 2>/dev/null
 
    Update .claude/docs/DESIGN.md with architecture decisions.
 
@@ -599,7 +602,7 @@ use the classification from the Codex scope analysis.
 Codex implements directly (workspace-write):
 
 ```bash
-codex exec --model "${CODEX_MODEL:-gpt-5.5}" --sandbox workspace-write "
+codex exec --model "${CODEX_MODEL:-gpt-5.6-sol}" -c model_reasoning_effort="${CODEX_IMPL_EFFORT:-medium}" --sandbox workspace-write "
 Objective: Implement this feature following the approved plan.
 Context:
 - Feature Brief: {feature brief}
@@ -673,7 +676,7 @@ it now per the common protocol.
 ## Tips
 
 - **Mode first**: The biggest failure mode is picking the wrong path. When ambiguous, always AskUserQuestion — never guess
-- **Codex-first (existing mode)**: Every phase consults Codex. Codex excels at understanding how new code fits into existing patterns and identifying integration risks; early scope classification picks the right implementation route from the start; validation catches missing edge cases and convention violations before implementation begins
+- **Codex consultation (existing mode)**: Every phase consults Codex; Claude owns the resulting plan. Codex excels at understanding how new code fits into existing patterns and identifying integration risks; early scope classification picks the right implementation route from the start; validation catches missing edge cases and convention violations before implementation begins
 - **Existing patterns**: The most important input to Codex is the existing codebase patterns from the Opus subagent scan — include them in every Codex prompt
 - **Agent Teams (greenfield mode)**: Bidirectional communication lets Researcher (Opus) and Architect (Codex) influence each other in real time
 - **Complexity routing**: Do not over-engineer simple features. 1-3 file changes should use Codex direct implementation, not Agent Teams

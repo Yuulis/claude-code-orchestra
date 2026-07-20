@@ -1,17 +1,21 @@
 # Codex Delegation Rule
 
-**Codex CLI handles planning, design, and complex code implementation.**
+**Codex CLI is Claude's implementation executor and design consultant. Claude
+leads and finalizes planning; Codex implements and advises.**
 
 > Preflight: ensure codex CLI is current (see codex-system skill).
+> Model/effort lane selection: `.claude/rules/model-routing.md` (SSOT).
 
 ## Two Roles of Codex
 
-### 1. Planning & Design
+### 1. Design Consultation
+
+Claude owns and finalizes plans; Codex is consulted for an expert design
+opinion (`${CODEX_MODEL}` at `${CODEX_PLAN_EFFORT}`) when the stakes warrant it:
 
 - Architecture design, module structure
-- Implementation planning (step decomposition, dependency ordering)
+- Implementation-plan sanity checks (step decomposition, dependency ordering)
 - Trade-off evaluation, technology selection
-- Code review (quality and correctness analysis)
 
 ### 2. Complex Code Implementation
 
@@ -22,24 +26,27 @@
 
 ## Delegation Decision
 
-Default to Codex-first delegation for development tasks.
+Claude leads planning and delegates implementation to Codex by default.
 
-Consult Codex when **any** of these apply (recommended default):
+Delegate **implementation** to Codex when the change is non-trivial (multi-file,
+complex algorithm, unclear root cause, multi-step). Ask Codex for a **design
+opinion** (consultation, not ownership) when **any** of these apply:
 
-- Design/architecture decisions are involved.
-- Change spans 2+ files with behavior impact.
-- Root cause is unclear.
+- High-stakes design/architecture decisions are involved (architecture, data
+  model, security-sensitive).
 - User requests comparison/trade-off analysis.
-- You need a step-by-step implementation plan.
-- You are unsure and want a safe implementation direction.
+- You are unsure between two implementation directions.
 
 Do NOT delegate to Codex when:
 
 - Obvious one-file tiny edits, typo fixes
 - Tasks that simply follow explicit user instructions
 - git commit, test execution, lint
+- **Routine planning** → Claude leads it directly
+- **Default code review** → Sonnet subagent (Opus for high-risk); `/codex:review`
+  is an optional cross-tool lane, recommended in addition for high-risk changes
 - **Codebase analysis** → general-purpose subagent (Opus 1M context)
-- **External information retrieval / web research** → general-purpose subagent (Opus, WebSearch/WebFetch)
+- **External information retrieval / web research** → general-purpose subagent (Opus, WebSearch/WebFetch); Antigravity may assist as needed
 - **Second opinion on an already-completed design/plan** → Antigravity CLI (`.claude/rules/antigravity-delegation.md`)
 
 ## Prompt Contract (Always Include)

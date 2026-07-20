@@ -2,10 +2,11 @@
 name: antigravity-system
 description: |
   Antigravity CLI (agy, Gemini 3.x) provides cross-model second opinions:
-  independent review of Codex-produced designs/plans, tiebreaking between
-  competing approaches, and pre-ship verification by a different model family.
-  NOT for research (use general-purpose subagent), NOT for planning/implementation
-  (use Codex), NOT for multimodal (Claude handles directly).
+  independent review of designs/plans, tiebreaking between competing
+  approaches, and pre-ship verification by a different model family. May also
+  assist information gathering as needed (primary research lane stays the
+  general-purpose subagent). NOT for planning/implementation (use Codex),
+  NOT for multimodal (Claude handles directly).
   Explicit triggers: "second opinion", "cross-check", "another model",
   "セカンドオピニオン", "別のモデル".
 metadata:
@@ -27,9 +28,11 @@ metadata:
 A third, independent perspective on top of Claude (orchestration) and Codex
 (design/implementation). Antigravity **verifies — it does not author**:
 
-- Cross-examine a Codex-produced design or implementation plan before user approval
+- Cross-examine a design or implementation plan before user approval
 - Tiebreak when Claude and Codex disagree on an approach
 - Pre-ship review with a different model family's blind spots
+- Auxiliary: assist the information-gathering phase as needed (primary research
+  lane stays the Opus general-purpose subagent)
 
 ## When to Delegate
 
@@ -132,7 +135,7 @@ agy --model gemini-3.5-flash --sandbox -p "Sanity-check: {brief claim or decisio
 
 | Task | Correct Owner |
 |------|---------------|
-| Research / web survey | general-purpose subagent (Opus) |
+| Research / web survey (primary lane) | general-purpose subagent (Opus) — agy may assist as needed, not by default |
 | Codebase analysis | general-purpose subagent (Opus 1M) |
 | Planning, design, implementation | Codex CLI (codex-system skill) |
 | Debugging | Codex CLI / codex-debugger |

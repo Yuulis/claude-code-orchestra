@@ -24,3 +24,7 @@
 
 - Technical documentation: English
 - User-facing documentation (README, etc.): English
+- **Exception**: content under `docs/manual/**` is written in **Japanese**
+  (spec/status summaries; see `.claude/rules/manual-docs.md`). This exception is
+  path-scoped: `.claude/docs/DESIGN.md`, rules, skills, prompts, and code
+  comments stay in English.

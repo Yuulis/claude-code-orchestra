@@ -203,8 +203,12 @@
   "env": {
     "EDITOR": "code --wait",
     "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1",
-    "CLAUDE_CODE_SUBAGENT_MODEL": "claude-opus-4-8",
-    "CODEX_MODEL": "gpt-5.5",
+    "CODEX_MODEL": "gpt-5.6-sol",
+    "CODEX_MODEL_TERRA": "gpt-5.6-terra",
+    "CODEX_MODEL_LUNA": "gpt-5.6-luna",
+    "CODEX_RESCUE_MODEL": "gpt-5.6-terra",
+    "CODEX_PLAN_EFFORT": "high",
+    "CODEX_IMPL_EFFORT": "medium",
     "ANTIGRAVITY_MODEL": "gemini-3.1-pro"
   }
 }

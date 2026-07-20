@@ -1,31 +1,34 @@
 ---
 name: codex-system
 description: |
-  Codex CLI handles planning, design, and complex code implementation.
-  Use for: architecture design, implementation planning, complex algorithms,
-  debugging (root cause analysis), trade-off evaluation, code review.
+  Codex CLI handles complex code implementation and design consultation.
+  Claude leads and owns planning; Codex implements and advises.
+  Use for: complex algorithms, debugging (root cause analysis), design
+  opinions on architecture/trade-offs, multi-step implementation.
   External research is NOT Codex's job — use general-purpose subagent (Opus) instead.
-  Explicit triggers: "plan", "design", "architecture", "think deeper",
+  Explicit triggers: "implement", "design opinion", "think deeper",
   "analyze", "debug", "complex", "optimize".
 metadata:
-  short-description: Codex CLI — planning, design, and complex implementation
+  short-description: Codex CLI — implementation and design consultation
 ---
 
-# Codex System — Planning, Design & Complex Implementation
+# Codex System — Implementation & Design Consultation
 
-**Codex CLI handles planning, design, and complex code implementation.**
+**Codex CLI is Claude's implementation executor and design consultant. Claude leads and finalizes planning.**
 
 > **Preflight (SSOT):** Update CLIs before each session — `claude update && npm install -g @openai/codex@latest`. Releases drift frequently (model names, flags, sandbox semantics). Other skills reference this line instead of repeating it.
 > **Delegation policy (when to delegate)**: `.claude/rules/codex-delegation.md`
+> **Model/effort lanes (incl. Codex-side sol/terra/luna)**: `.claude/rules/model-routing.md`
 
 ## Two Roles of Codex
 
-### 1. Planning & Design
+### 1. Design Consultation
+
+Claude owns the plan; Codex provides expert opinions on:
 
 - Architecture design, module composition
-- Implementation plan creation (step breakdown, dependency ordering)
+- Implementation-plan sanity checks (step breakdown, dependency ordering)
 - Trade-off evaluation, technology selection
-- Code review (quality and correctness analysis)
 
 ### 2. Complex Implementation
 
@@ -49,7 +52,7 @@ Agent tool parameters:
 - prompt: |
     Consult Codex about: {topic}
 
-    codex exec --model "${CODEX_MODEL:-gpt-5.5}" --sandbox read-only "
+    codex exec --model "${CODEX_MODEL:-gpt-5.6-sol}" -c model_reasoning_effort="${CODEX_PLAN_EFFORT:-high}" --sandbox read-only "
     Objective: {single-sentence objective}
     Constraints:
     - {constraint 1}
@@ -71,13 +74,13 @@ Agent tool parameters:
 ### Direct Call (short questions, responses up to ~50 lines)
 
 ```bash
-codex exec --model "${CODEX_MODEL:-gpt-5.5}" --sandbox read-only "Objective: {brief question}" 2>/dev/null
+codex exec --model "${CODEX_MODEL:-gpt-5.6-sol}" -c model_reasoning_effort="${CODEX_PLAN_EFFORT:-high}" --sandbox read-only "Objective: {brief question}" 2>/dev/null
 ```
 
 ### Having Codex Implement Code
 
 ```bash
-codex exec --model "${CODEX_MODEL:-gpt-5.5}" --sandbox workspace-write "
+codex exec --model "${CODEX_MODEL:-gpt-5.6-sol}" -c model_reasoning_effort="${CODEX_IMPL_EFFORT:-medium}" --sandbox workspace-write "
 Objective: Implement {detailed implementation task}
 Constraints:
 - Follow existing project conventions
@@ -105,7 +108,7 @@ Output format:
 ### Implementation Planning
 
 ```bash
-codex exec --model "${CODEX_MODEL:-gpt-5.5}" --sandbox read-only "
+codex exec --model "${CODEX_MODEL:-gpt-5.6-sol}" -c model_reasoning_effort="${CODEX_PLAN_EFFORT:-high}" --sandbox read-only "
 Create an implementation plan for: {feature}
 
 Context: {relevant architecture/code}
@@ -121,7 +124,7 @@ Provide:
 ### Design Review
 
 ```bash
-codex exec --model "${CODEX_MODEL:-gpt-5.5}" --sandbox read-only "
+codex exec --model "${CODEX_MODEL:-gpt-5.6-sol}" -c model_reasoning_effort="${CODEX_PLAN_EFFORT:-high}" --sandbox read-only "
 Review this design approach for: {feature}
 
 Context: {relevant code or architecture}
@@ -137,7 +140,7 @@ Evaluate:
 ### Debug Analysis
 
 ```bash
-codex exec --model "${CODEX_MODEL:-gpt-5.5}" --sandbox read-only "
+codex exec --model "${CODEX_MODEL:-gpt-5.6-sol}" -c model_reasoning_effort="${CODEX_PLAN_EFFORT:-high}" --sandbox read-only "
 Debug this issue:
 
 Error: {error message}
@@ -181,9 +184,12 @@ When the `openai/codex-plugin-cc` plugin is installed, these slash commands are 
 /codex:rescue investigate why the tests started failing
 /codex:rescue fix the failing test with the smallest safe patch
 /codex:rescue --resume apply the top fix from the last run
-/codex:rescue --model gpt-5.5-mini --effort medium investigate flaky test
+/codex:rescue --model "${CODEX_RESCUE_MODEL:-gpt-5.6-terra}" --effort medium investigate flaky test
 /codex:rescue --background investigate the regression
 ```
+
+> `CODEX_RESCUE_MODEL` is the cheap-retry lane. When a rescue is truly stuck
+> (not just cheap-to-retry), escalate manually to `gpt-5.6-sol` at high effort.
 
 ### Job Management
 

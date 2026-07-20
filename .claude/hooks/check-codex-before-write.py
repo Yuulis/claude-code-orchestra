@@ -119,11 +119,16 @@ def main():
                     "hookEventName": "PreToolUse",
                     "additionalContext": (
                         f"[Codex Consultation Reminder] {reason}. "
-                        "Consider consulting Codex before making this change. "
+                        "If this change is high-stakes design (architecture, data model, "
+                        "security-sensitive), consider a Codex design consultation before "
+                        "writing — Claude owns the final decision "
+                        "(lanes: .claude/rules/model-routing.md). "
                         "**Recommended**: Use Task tool with subagent_type='general-purpose' "
                         "to preserve main context. "
                         "(Direct call OK for quick questions: "
-                        "`codex exec --model \"${CODEX_MODEL:-gpt-5.5}\" --sandbox read-only '...'`)"
+                        "`codex exec --model \"${CODEX_MODEL:-gpt-5.6-sol}\" "
+                        "-c model_reasoning_effort=\"${CODEX_PLAN_EFFORT:-high}\" "
+                        "--sandbox read-only '...'`)"
                     )
                 }
             }

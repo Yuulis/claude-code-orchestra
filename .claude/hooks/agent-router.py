@@ -4,8 +4,10 @@ UserPromptSubmit hook: Route to appropriate agent based on user intent.
 
 Routing rules:
 - Codebase understanding / large analysis → Opus subagent (1M context)
-- External research / survey → Opus subagent
-- Planning, design, complex code → Codex CLI
+- External research / survey → Opus subagent (Antigravity may assist)
+- Complex implementation / debugging → Codex CLI; planning is Claude-led
+  (Codex consulted for high-stakes design; see .claude/rules/model-routing.md)
+- Code review → Sonnet subagent default (Opus high-risk); /codex:review optional
 
 Multimodal files (PDF/video/audio/image) are handled directly by Claude (Opus 4.7+).
 """
@@ -13,7 +15,7 @@ Multimodal files (PDF/video/audio/image) are handled directly by Claude (Opus 4.
 import json
 import sys
 
-# Triggers for Codex (planning, design, debugging, complex implementation)
+# Triggers for Codex (design consultation, debugging, complex implementation)
 CODEX_TRIGGERS = {
     "ja": [
         "設計", "どう設計", "アーキテクチャ",
@@ -22,7 +24,6 @@ CODEX_TRIGGERS = {
         "どちらがいい", "比較して", "トレードオフ",
         "実装方法", "どう実装",
         "リファクタリング", "リファクタ",
-        "レビュー",
         "考えて", "分析して", "深く",
         "最適化",
     ],
@@ -33,7 +34,6 @@ CODEX_TRIGGERS = {
         "compare", "trade-off", "tradeoff", "which is better",
         "how to implement", "implementation", "complex",
         "refactor", "simplify",
-        "review", "check this",
         "think", "analyze", "deeply",
         "optimize", "performance",
     ],
@@ -70,16 +70,16 @@ ANTIGRAVITY_TRIGGERS = {
     ],
 }
 
-# Triggers for Codex Plugin commands (review, rescue, delegation)
+# Triggers for review + Codex Plugin commands (review, rescue, delegation)
 CODEX_PLUGIN_TRIGGERS = {
     "ja": [
-        "レビューして", "コードレビュー", "レビューお願い",
+        "レビュー", "レビューして", "コードレビュー", "レビューお願い",
         "チェックして", "出荷前",
         "codexに任せ", "codexに渡", "codexに委",
         "バグ調査", "調査して",
     ],
     "en": [
-        "review this", "code review", "review my",
+        "review", "review this", "code review", "review my",
         "before shipping", "pre-ship",
         "delegate to codex", "hand to codex", "ask codex to",
         "codex rescue", "codex review",
@@ -138,11 +138,13 @@ def main():
                 "hookSpecificOutput": {
                     "hookEventName": "UserPromptSubmit",
                     "additionalContext": (
-                        f"[Agent Routing] Detected '{trigger}' — this task may benefit from "
-                        "Codex CLI for planning, design, or complex implementation. Consider: "
-                        "`codex exec --model \"${CODEX_MODEL:-gpt-5.5}\" --sandbox read-only "
-                        '"{task description}"` for design decisions, planning, debugging, '
-                        "or complex analysis."
+                        f"[Agent Routing] Detected '{trigger}' — Claude leads planning; "
+                        "for high-stakes design, debugging, or complex implementation, "
+                        "consult/delegate to Codex CLI. Consider: "
+                        "`codex exec --model \"${CODEX_MODEL:-gpt-5.6-sol}\" "
+                        "-c model_reasoning_effort=\"${CODEX_PLAN_EFFORT:-high}\" --sandbox read-only "
+                        '"{task description}"` for a design opinion or deep analysis '
+                        "(lanes: .claude/rules/model-routing.md)."
                     )
                 }
             }
@@ -153,8 +155,10 @@ def main():
                 "hookSpecificOutput": {
                     "hookEventName": "UserPromptSubmit",
                     "additionalContext": (
-                        f"[Codex Plugin] Detected '{trigger}' — consider using Codex Plugin commands. "
-                        "Available: `/codex:review` (code review), "
+                        f"[Review Routing] Detected '{trigger}' — default review lane is a "
+                        "Claude Sonnet subagent (Opus for high-risk: security, architecture, "
+                        "data model). For high-risk diffs, additionally consider the cross-tool "
+                        "lane: `/codex:review` (code review), "
                         "`/codex:adversarial-review` (design challenge), "
                         "`/codex:rescue` (task delegation). "
                         "Add `--background` for async execution, check with `/codex:status`."

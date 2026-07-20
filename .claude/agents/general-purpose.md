@@ -45,10 +45,10 @@ When planning, design decisions, debugging, or complex implementation is needed:
 
 ```bash
 # Analysis (read-only)
-codex exec --model "${CODEX_MODEL:-gpt-5.5}" --sandbox read-only "{question}" 2>/dev/null
+codex exec --model "${CODEX_MODEL:-gpt-5.6-sol}" -c model_reasoning_effort="${CODEX_PLAN_EFFORT:-high}" --sandbox read-only "{question}" 2>/dev/null
 
 # Implementation work (can write files)
-codex exec --model "${CODEX_MODEL:-gpt-5.5}" --sandbox workspace-write "{task}" 2>/dev/null
+codex exec --model "${CODEX_MODEL:-gpt-5.6-sol}" -c model_reasoning_effort="${CODEX_IMPL_EFFORT:-medium}" --sandbox workspace-write "{task}" 2>/dev/null
 ```
 
 **When to call Codex:**

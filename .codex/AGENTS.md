@@ -1,7 +1,9 @@
 # AGENTS.md — Codex Agent Contract
 
-Codex is **responsible for design, planning, and complex implementation** under this template.
-Its purpose is to return reusable output as a delegation target from Claude Code.
+Codex is **responsible for implementation, design consultation, and — when acting
+as the top-level agent — planning** under this template.
+When delegated to by Claude Code, Claude owns the plan; Codex returns reusable
+implementation output and design opinions.
 
 ## 1) Primary Responsibilities
 
@@ -67,3 +69,26 @@ Refer to the following as needed:
 - `.claude/docs/research/`
 - `.claude/rules/`
 - `.claude/logs/cli-tools.jsonl`
+
+## 8) Model & Effort Routing
+
+Full lane table (SSOT): `.claude/rules/model-routing.md`. Summary when Codex is
+the top-level orchestrator:
+
+- **Planning** → `gpt-5.6-sol`, reasoning effort **high or above** (the
+  `.codex/config.toml` default).
+- **Implementation & review** → mainly `gpt-5.6-sol` at **low/medium** effort;
+  route by task profile:
+  - `gpt-5.6-luna` (low): high-volume mechanical work with mechanically
+    checkable answers — classification/labeling, fixed-field extraction, short
+    transforms/summaries; escalate hard cases to Terra.
+  - `gpt-5.6-terra` (low/medium): everyday work — typical feature
+    implementation, test addition, refactoring, reports, issue handling,
+    document/code review.
+  - `gpt-5.6-sol` (high+): redo-cost exceeds model cost — cross-repo design
+    changes, hard root-cause analysis, long agent workflows, security review.
+- **User override**: when the user specifies a model, obey it; when the lane is
+  ambiguous, asking the user is acceptable.
+- **Per-invocation override**: `-m <model>` and
+  `-c model_reasoning_effort=<none|minimal|low|medium|high|xhigh|max>`. Sub-invocations
+  for implementation/review downshift from the config.toml `high` default via `-c`.

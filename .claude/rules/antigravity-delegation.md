@@ -7,16 +7,25 @@ It does not add a third code-review lane — raw implementation review stays wit
 (designs, plans, synthesized risk assessments), not diffs by default.
 
 > Antigravity CLI is the successor to Gemini CLI (rebranded 2026-05, Gemini CLI retired 2026-06).
-> Its old roles are NOT restored: multimodal → Claude directly, research → Opus subagents.
-> The new role is **independent verification by a different model family**.
+> Its old roles are NOT restored: multimodal → Claude directly, research → primarily Opus subagents
+> (Antigravity may assist in the information-gathering phase as needed — see below).
+> The primary role is **independent verification by a different model family**.
 >
 > Preflight: ensure the CLI is current (see antigravity-system skill).
 
 ## Role: Cross-Model Second Opinion
 
-Codex-first delegation (`.claude/rules/codex-delegation.md`) remains the default for
-planning, design, and complex implementation. Antigravity adds a **third, independent
-perspective** (Gemini 3.x) on top of Claude + Codex — it verifies, it does not author.
+Claude-led planning with Codex implementation (`.claude/rules/codex-delegation.md`,
+`.claude/rules/model-routing.md`) remains the default pipeline. Antigravity adds a
+**third, independent perspective** (Gemini 3.x) on top of Claude + Codex — it
+verifies, it does not author.
+
+### Auxiliary Research Role
+
+During the information-gathering phase, Antigravity may be used **as needed** to
+supplement the primary research lane (Opus `general-purpose` subagent) — e.g., to
+get a different model family's read on ambiguous external information. This is an
+auxiliary option, not a default lane; routine research still goes to Opus subagents.
 
 ## When to Use Antigravity
 
@@ -36,7 +45,7 @@ Consult Antigravity when **any** of these apply:
 |------|---------------|
 | Planning, design, complex implementation | **Codex CLI** (`codex-delegation.md`) |
 | Debugging, root cause analysis | **Codex CLI** / codex-debugger |
-| External research, web survey | **general-purpose subagent** (Opus, WebSearch/WebFetch) |
+| External research, web survey | **general-purpose subagent** (Opus, WebSearch/WebFetch) — Antigravity may assist as needed, not by default |
 | Codebase analysis | **general-purpose subagent** (Opus 1M context) |
 | Multimodal input (PDF, images, etc.) | **Claude directly** |
 | Simple edits, git operations, tests | **Claude directly** |

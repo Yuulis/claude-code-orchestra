@@ -92,7 +92,7 @@ def main() -> None:
         return
 
     prompt = extract_prompt(command, tool)
-    default_model = "gpt-5.5" if tool == "codex" else "gemini-3.1-pro"
+    default_model = "gpt-5.6-sol" if tool == "codex" else "gemini-3.1-pro"
     model = extract_model(command) or default_model
 
     if not prompt:
