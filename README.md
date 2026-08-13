@@ -13,7 +13,7 @@ Claude Code（オーケストレーター & プランナー）─┬─ Codex CL
 既存プロジェクトのルートで実行します（事前に Codex のインストールとログインを済ませてください）：
 
 ```bash
-codex --version && codex login && git clone --depth 1 https://github.com/DeL-TaiseiOzaki/claude-code-orchestra.git .starter && cp -r .starter/.claude .starter/.codex .starter/CLAUDE.md . && rm -rf .starter && claude
+codex --version && codex login && git clone --depth 1 https://github.com/Yuulis/claude-code-orchestra.git .starter && cp -r .starter/.claude .starter/.codex .starter/CLAUDE.md . && rm -rf .starter && claude
 ```
 
 ## 使い方
