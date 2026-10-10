@@ -60,8 +60,12 @@ def run_cli_consult(
     path_prefix: Path | None = None,
     empty_path: bool = False,
     stdin_input: str | None = None,
+    extra_env: dict[str, str] | None = None,
 ) -> subprocess.CompletedProcess[str]:
     env = os.environ.copy()
+    # The ambient model pin must not leak into tests that assert argv.
+    env.pop("ANTIGRAVITY_MODEL", None)
+    env.update(extra_env or {})
     if empty_path:
         empty_bin = tmp_path / "empty_bin"
         empty_bin.mkdir(exist_ok=True)
@@ -239,6 +243,77 @@ def test_antigravity_captures_text_output_verbatim(tmp_path: Path) -> None:
     # Headless is already unrestricted: there is no permission flag to send,
     # and inventing one would misreport what the callee is actually doing.
     assert not [arg for arg in argv if "approval" in arg or "permission" in arg]
+
+
+def run_antigravity_model_case(
+    tmp_path: Path, extra_args: list[str], extra_env: dict[str, str]
+) -> tuple[dict, list[str]]:
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    argv_log = tmp_path / "argv.json"
+    write_fake_cli(bin_dir, "agy", stdout="ok\n", argv_log=argv_log)
+    prompt_file = write_prompt(tmp_path, "Objective: x")
+
+    result = run_cli_consult(
+        tmp_path,
+        ["--cli", "antigravity", "--prompt-file", str(prompt_file), *extra_args],
+        path_prefix=bin_dir,
+        extra_env=extra_env,
+    )
+
+    assert result.returncode == 0, result.stderr
+    argv = json.loads(argv_log.read_text(encoding="utf-8"))
+    return json.loads(result.stdout), argv
+
+
+def test_antigravity_model_defaults_to_env_when_unset(tmp_path: Path) -> None:
+    payload, argv = run_antigravity_model_case(
+        tmp_path, [], {"ANTIGRAVITY_MODEL": "gemini-env-model"}
+    )
+
+    assert argv[argv.index("--model") + 1] == "gemini-env-model"
+    assert payload["model"] == "gemini-env-model"
+
+
+def test_antigravity_explicit_model_wins_over_env(tmp_path: Path) -> None:
+    payload, argv = run_antigravity_model_case(
+        tmp_path, ["--model", "explicit"], {"ANTIGRAVITY_MODEL": "gemini-env-model"}
+    )
+
+    assert argv[argv.index("--model") + 1] == "explicit"
+    assert payload["model"] == "explicit"
+
+
+def test_antigravity_without_env_or_flag_sends_no_model(tmp_path: Path) -> None:
+    payload, argv = run_antigravity_model_case(tmp_path, [], {})
+
+    assert "--model" not in argv
+    assert payload["model"] is None
+
+
+def test_antigravity_empty_env_sends_no_model(tmp_path: Path) -> None:
+    payload, argv = run_antigravity_model_case(tmp_path, [], {"ANTIGRAVITY_MODEL": ""})
+
+    assert "--model" not in argv
+    assert payload["model"] is None
+
+
+def test_claude_ignores_antigravity_model_env(tmp_path: Path) -> None:
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    argv_log = tmp_path / "argv.json"
+    write_fake_cli(bin_dir, "claude", stdout=claude_envelope("done"), argv_log=argv_log)
+    prompt_file = write_prompt(tmp_path, "Objective: x")
+
+    result = run_cli_consult(
+        tmp_path,
+        ["--cli", "claude", "--prompt-file", str(prompt_file)],
+        path_prefix=bin_dir,
+        extra_env={"ANTIGRAVITY_MODEL": "gemini-env-model"},
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "--model" not in json.loads(argv_log.read_text(encoding="utf-8"))
 
 
 def test_antigravity_refuses_read_only_it_cannot_enforce(tmp_path: Path) -> None:

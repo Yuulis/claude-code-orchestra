@@ -98,6 +98,9 @@ CLI_SPECS: dict[str, dict] = {
         "read_only": None,
         "write": [],
         "model_flag": "--model",
+        # `agy` rejects some bare slugs, so the model defaults to the
+        # repository-pinned $ANTIGRAVITY_MODEL when --model is not passed.
+        "model_env": "ANTIGRAVITY_MODEL",
         "resume_flag": None,
         "install_hint": "install the Antigravity CLI so that `agy` is on PATH",
     },
@@ -351,7 +354,10 @@ def main() -> int:  # noqa: C901 — single-function CLI entry point
     parser.add_argument(
         "--model",
         default=None,
-        help="Pin the callee's model (default: the callee's own default)",
+        help=(
+            "Pin the callee's model (default: the callee's own default, or "
+            "$ANTIGRAVITY_MODEL for --cli antigravity)"
+        ),
     )
     parser.add_argument(
         "--resume",
@@ -470,6 +476,9 @@ def main() -> int:  # noqa: C901 — single-function CLI entry point
     write_access = not args.read_only
     caller = args.caller or os.environ.get("ORCHESTRA_CALLER") or None
     model = args.model
+    model_env = spec.get("model_env")
+    if model is None and model_env:
+        model = os.environ.get(model_env) or None
 
     # --- the callee must be resolvable on PATH before we attempt to run it ---
     if shutil.which(spec["base"][0]) is None:

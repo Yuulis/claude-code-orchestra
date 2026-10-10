@@ -24,7 +24,13 @@ EXCLUDED_PREFIXES = (".claude/docs/reviews/",)
 RETIRED_MODEL_PATTERNS = {
     "GPT-5 family (superseded by GPT-6)": re.compile(r"\bgpt-5\.\d"),
     "gpt-5.3-codex-spark": re.compile(r"codex-spark"),
-    "retired `spark` alias": re.compile(r"--model[ =]+[\"']?spark\b"),
+    # `--model spark`, or any key containing "model" assigned `spark`: TOML/YAML
+    # `model = "spark"` / `model: spark`, JSON `"CODEX_MODEL": "spark"`, shell
+    # `CODEX_MODEL=spark`. The bare word "spark" elsewhere is not a match.
+    "retired `spark` alias": re.compile(
+        r"--model[ =]+[\"']?spark\b|\w*model\w*[\"']?\s*[:=]\s*[\"']?spark\b",
+        re.IGNORECASE,
+    ),
     "gemini-3.5-flash (not offered by agy)": re.compile(r"\bgemini-3\.5-flash"),
     "gpt-6.1-luna (does not exist)": re.compile(r"\bgpt-6\.1-luna\b"),
     "terra lane (no GPT-6 successor)": re.compile(r"\bCODEX_MODEL_TERRA\b"),
@@ -102,3 +108,30 @@ def test_retired_model_patterns_detect_known_stale_ids(tmp_path: Path) -> None:
         "sample.md:4: gpt-6.1-luna (does not exist)",
         "sample.md:4: terra lane (no GPT-6 successor)",
     ]
+
+
+def test_spark_alias_pattern_matches_assignments_but_not_the_plain_word() -> None:
+    pattern = RETIRED_MODEL_PATTERNS["retired `spark` alias"]
+
+    for line in (
+        "--model spark",
+        "--model=spark",
+        'model = "spark"',
+        "model: spark",
+        '"CODEX_MODEL": "spark"',
+        "CODEX_MODEL=spark",
+        "export CODEX_MODEL_LUNA='spark'",
+        "default_model: 'spark'",
+    ):
+        assert pattern.search(line), line
+
+    for line in (
+        "Apache Spark is a data engine",
+        "a spark of an idea",
+        "model: sparkling",
+        'model = "gpt-6-luna"  # spark is retired',
+        "spark = 1",
+    ):
+        assert not pattern.search(line), line
+
+    assert RETIRED_MODEL_PATTERNS["gpt-5.3-codex-spark"].search("gpt-5.3-codex-spark")

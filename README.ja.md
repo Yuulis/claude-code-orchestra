@@ -499,6 +499,7 @@ uv run ruff check .
 | フック | トリガー | 動作 |
 |--------|----------|------|
 | `agent-router.py` | ユーザー入力 | Codex / Opus サブエージェントへのルーティングを提案 |
+| `antigravity-router.py` | ユーザー入力 | 別モデルによるセカンドオピニオンが明示された場合に Antigravity を提案 |
 | `lint-on-save.py` | ファイル保存 | lint を自動実行 |
 | `check-codex-before-write.py` | ファイル書き込み前 | Codex への相談を提案 |
 | `check-codex-after-plan.py` | Task 実行後 | 計画・設計タスクの後に Codex レビューを提案 |

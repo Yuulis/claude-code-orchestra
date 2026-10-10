@@ -511,6 +511,7 @@ Automation hooks execute agent coordination and quality checks at the appropriat
 | Hook | Trigger | Action |
 |--------|----------|------|
 | `agent-router.py` | User input | Suggests routing to Codex / Opus subagent |
+| `antigravity-router.py` | User input | Suggests Antigravity for an explicit different-model second opinion |
 | `lint-on-save.py` | File save | Auto-runs lint |
 | `check-codex-before-write.py` | Before file write | Suggests consulting Codex |
 | `check-codex-after-plan.py` | After Task execution | Suggests Codex review after planning/design tasks |

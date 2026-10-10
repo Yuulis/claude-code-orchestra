@@ -13,6 +13,8 @@ import json
 from pathlib import Path
 from types import ModuleType
 
+import pytest
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 HOOKS_DIR = REPO_ROOT / ".claude" / "hooks"
 
@@ -126,6 +128,50 @@ def test_error_hook_quiet_on_two_weak_signals():
             "Retrying after the request timed out\n"
             "Successfully installed requests-2.32.3\n",
         )
+    )
+    assert context is None
+
+
+REAL_FAILURE_OUTPUT = (
+    'Traceback (most recent call last):\n  File "w.py", line 1\nValueError: bad\n'
+)
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "python3 worker.py --config rg.toml",
+        'python3 worker.py --message "git show"',
+        "python3 worker.py 2>&1 | tee run.log; rg ERROR run.log",
+        "make build && grep -c FAIL out.txt",
+        "FOO=1 python3 worker.py",
+    ],
+)
+def test_error_hook_fires_when_display_command_is_not_the_executable(command):
+    context = error_to_codex.build_context(bash_payload(command, REAL_FAILURE_OUTPUT))
+    assert context is not None, command
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "git show HEAD",
+        "git -C repo log -p",
+        "git --no-pager diff HEAD~1",
+        "git blame README.md",
+        "rg TODO src | head",
+        "grep -rn error .",
+        "FOO=1 rg error docs",
+    ],
+)
+def test_error_hook_quiet_when_display_command_is_the_executable(command):
+    context = error_to_codex.build_context(bash_payload(command, REAL_FAILURE_OUTPUT))
+    assert context is None, command
+
+
+def test_error_hook_skips_agy_calls():
+    context = error_to_codex.build_context(
+        bash_payload("python3 run.py && agy -p hi", REAL_FAILURE_OUTPUT)
     )
     assert context is None
 

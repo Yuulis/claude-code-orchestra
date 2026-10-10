@@ -13,8 +13,11 @@ elsewhere. See [`.claude/rules/tiers.md`](../.claude/rules/tiers.md).
 `agy -p` is the non-interactive mode the shared wrapper drives:
 
 ```bash
-python3 .claude/skills/_shared/cli_consult.py --cli antigravity --prompt-file <path>
+python3 .claude/skills/_shared/cli_consult.py --cli antigravity \
+  --model "${ANTIGRAVITY_MODEL:-gemini-3.1-pro-high}" --prompt-file <path>
 ```
+
+See the `antigravity-system` skill for the full second-opinion procedure.
 
 - **Headless auto-approves every tool call.** There is no caller-side flag that
   confines a run, which is why `cli_consult.py --read-only` is *refused* for this

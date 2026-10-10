@@ -6,8 +6,9 @@ description: |
   approaches, and pre-ship verification by a different model family. A
   verification layer, not a tier: NOT for planning, review, implementation,
   debugging, or research (see .claude/rules/delegation.md).
-  Explicit triggers: "second opinion", "cross-check", "another model",
-  "セカンドオピニオン", "別のモデル".
+  Explicit triggers (hint hook: .claude/hooks/antigravity-router.py): "second
+  opinion", "another model", "different model", "antigravity", "gemini",
+  "セカンドオピニオン", "別のモデル". Not "cross-check" (mechanical checks).
 metadata:
   short-description: Antigravity CLI — cross-model second opinions (Gemini)
 ---
@@ -53,6 +54,10 @@ python3 .claude/skills/_shared/cli_consult.py --cli antigravity \
   and the stderr log, then retry once or report the opinion as skipped.
 - `--read-only` is refused for Antigravity (headless auto-approves every tool
   call). Check the `edits` object: a second opinion should have edited nothing.
+- Because headless auto-approves tool calls, prefer `--cwd <scratch dir>`
+  holding only the material under review (e.g. an exported diff) so the callee
+  works outside the repository. Afterwards, confirm the JSON
+  `edits.files_total` is 0.
 - For a large proposal, run the call inside a `general-purpose-opus` subagent
   and have it return only verdict + top risks + recommendation.
 

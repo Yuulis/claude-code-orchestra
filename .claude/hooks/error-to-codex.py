@@ -81,10 +81,19 @@ IGNORE_COMMANDS = [
 
 # Read-only commands that display file/history content — their output routinely
 # contains error-looking text (docs, old commits) without anything being wrong.
-# Matched anywhere in the command line, tolerating flags like `git -C path show`.
+# Anchored at the command's leading executable, tolerating flags like
+# `git -C path show`; a display command mentioned later in the line (as an
+# argument or after a `;`) says nothing about what produced the output.
 DISPLAY_COMMAND_RE = re.compile(
-    r"\b(?:git\s+(?:-\S+\s+|-C\s+\S+\s+)*(?:show|log|diff|blame)|grep|rg)\b"
+    r"(?:git\s+(?:-C\s+\S+\s+|-\S+\s+)*(?:show|log|diff|blame)|grep|rg)\b"
 )
+
+# Leading `FOO=1 BAR=x` environment assignments before the executable.
+LEADING_ENV_RE = re.compile(r"^(?:[A-Za-z_]\w*=\S*\s+)+")
+
+# Command chaining makes the leading executable unrepresentative of the output.
+# Pipes are fine: `rg TODO | head` still only displays content.
+CHAIN_OPERATORS = (";", "&&", "||", "\n")
 
 # Outputs to ignore (trivial / expected errors)
 IGNORE_OUTPUTS = [
@@ -107,6 +116,14 @@ SKIP_COMMANDS = [
 MIN_OUTPUT_LENGTH = 5
 
 
+def is_display_command(command: str) -> bool:
+    """True if the command's leading executable is a read-only display command."""
+    if any(operator in command for operator in CHAIN_OPERATORS):
+        return False
+    executable_part = LEADING_ENV_RE.sub("", command.strip())
+    return DISPLAY_COMMAND_RE.match(executable_part) is not None
+
+
 def should_ignore_command(command: str) -> bool:
     """Check if the command should be ignored."""
     command_stripped = command.strip()
@@ -116,7 +133,7 @@ def should_ignore_command(command: str) -> bool:
     for skip in SKIP_COMMANDS:
         if skip in command_stripped:
             return True
-    if DISPLAY_COMMAND_RE.search(command_stripped):
+    if is_display_command(command_stripped):
         return True
     return False
 

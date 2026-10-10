@@ -113,7 +113,7 @@ print(d.get('env', {}).get('CODEX_MODEL', ''))
 
     # Extract distinct fallback values from ${CODEX_MODEL:-...} patterns
     local fallbacks
-    fallbacks=$(grep -rhoE '\$\{CODEX_MODEL:-[^}]+\}' "${ROOT}/.claude/" "${ROOT}/.codex/" 2>/dev/null \
+    fallbacks=$(grep -rhoE --exclude-dir=logs '\$\{CODEX_MODEL:-[^}]+\}' "${ROOT}/.claude/" "${ROOT}/.codex/" 2>/dev/null \
         | sed 's/.*:-\(.*\)}/\1/' \
         | sort -u \
         | grep -v 'gpt-5.5-mini' || true)

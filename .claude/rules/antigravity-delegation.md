@@ -19,8 +19,11 @@ Consult Antigravity when **any** of these apply:
 - Codex and a Claude agent disagree and the evidence does not settle it — ask
   for a tiebreak with explicit trade-off framing, before or alongside an
   escalation to `fable-advisor`.
-- The user explicitly asks for a "second opinion", "cross-check", or "another
-  model's view" (セカンドオピニオン, 別のモデル).
+- The user explicitly asks for a "second opinion", "another model's view", or
+  names Antigravity/Gemini (セカンドオピニオン, 別のモデル). "Cross-check" alone
+  usually means a mechanical check and is not a trigger. The hint is emitted by
+  `.claude/hooks/antigravity-router.py`, which stays silent when the prompt
+  names another executor (Codex, Fable, Opus, Sonnet, Claude) instead.
 - A final gate before shipping a large change, complementing
   `/codex:adversarial-review` with another model family's blind spots.
 
