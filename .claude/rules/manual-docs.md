@@ -27,13 +27,15 @@ docs/manual/<theme>/
 
 Content under `docs/manual/**` is written in **Japanese** — this is the only
 documentation location exempt from the English rule. Code identifiers,
-commands, and file paths stay in English. See `.claude/rules/language.md`
-(Documentation exception).
+commands, and file paths stay in English. The normative exception lives in
+`AGENTS.md` `## Language Protocol`; prose style follows
+`.claude/rules/language.md` `## Response Style`.
 
 ## Scope Boundaries
 
 - `docs/manual/` = user-facing Japanese summaries of specs/status (this rule).
 - `.claude/docs/DESIGN.md` = macro requirements/design (要件定義書), managed by
   `/init` and `/design-tracker` — do not duplicate it here; link to it.
-- `.claude/docs/research/` = research outputs; `PROGRESS.md` = work progress.
-  None of these move under `docs/manual/`.
+- `.claude/docs/research/` = research outputs; `PROGRESS.md` and
+  `.claude/STATE.md` = work progress and working state. None of these move
+  under `docs/manual/`.

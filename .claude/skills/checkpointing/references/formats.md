@@ -88,7 +88,7 @@ All collectors succeeded.
 ## Git Activity
 
 ### Commits
-- `abc1234` feat: redesign feature skill for Opus 4.6
+- `abc1234` feat: redesign feature skill for Opus
 
 ### File Changes
 **Created:**

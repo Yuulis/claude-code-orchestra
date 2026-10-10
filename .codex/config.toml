@@ -1,10 +1,16 @@
 # Codex CLI Project Configuration
 # This file enables project-specific Codex settings
 
-# Default model configuration
-model = "gpt-5.6-sol"
-model_reasoning_effort = "xhigh"
+# Default model configuration. Effort stays "high"; xhigh/max/ultra and the
+# gpt-6-astra model are used only when the user explicitly asks for them
+# (see .claude/rules/model-routing.md).
+model = "gpt-6.1-sol"
+model_reasoning_effort = "high"
 model_reasoning_summary = "detailed"
+
+# Response style (top-level key: placed after a [[table]] it would be parsed
+# as a field of that table and rejected by --strict-config)
+model_verbosity = "medium"
 
 # Web search
 web_search = "live"
@@ -24,10 +30,6 @@ approval_policy = "never"
 # Verification)") remains mandatory regardless of sandbox mode.
 sandbox_mode = "danger-full-access"
 
-# Feature toggles
-[features]
-skills = true
-
 # Enabled project skills. Deliberately short: most skills under
 # .claude/skills/ are Claude-lead orchestration whose steps invoke Claude
 # Code's Task tool with a `subagent_type` (feature, spike, team-execute,
@@ -44,6 +46,3 @@ path = ".claude/skills/context-loader"
 [[skills.config]]
 enabled = true
 path = ".claude/skills/design-tracker"
-
-# Response style
-verbosity = "medium"

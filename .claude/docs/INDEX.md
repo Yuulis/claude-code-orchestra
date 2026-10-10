@@ -16,6 +16,9 @@
 | CLI agent contract            | normative             | `AGENTS.md`                                   | Same file, second half: response, handoff, cross-CLI invocation, guardrails |
 | Tier definitions              | normative             | `.claude/rules/tiers.md`                            | 3-tier hierarchy (default/sol/fable) |
 | Delegation-first policy       | normative             | `.claude/rules/delegation.md`                       | Self-handle list, mandatory triggers, route table, subagent prompt contract |
+| Codex sub-lanes (addendum)    | normative             | `.claude/rules/model-routing.md`                    | Tier 2 sol/luna/astra lanes, effort policy, model env vars |
+| Cross-model second opinion    | normative             | `.claude/rules/antigravity-delegation.md`           | When to consult Antigravity (verification layer, not a tier) |
+| Manual docs convention        | normative             | `.claude/rules/manual-docs.md`                      | Japanese spec/status summaries under `docs/manual/` |
 | Antigravity adapter           | normative             | `.agents/AGENTS.md`                           | Headless behaviour, why `--read-only` is refused |
 | Codex adapter                 | normative             | `.codex/AGENTS.md`                            | Codex model config, sandbox discipline, enabled skills |
 | Shared rules                  | normative             | `.claude/rules/`                              | Coding, testing, security, routing, and state rules |
@@ -30,6 +33,6 @@
 
 ## Related Canonical Files (outside .claude/docs/)
 
-- **Model configuration**: `.claude/settings.json` (`env.CODEX_MODEL`) and `.codex/config.toml` (`model`)
+- **Model configuration**: `.claude/settings.json` (`env.CODEX_MODEL`, `CODEX_MODEL_LUNA`, `CODEX_MODEL_ASTRA`, `ANTIGRAVITY_MODEL`) and `.codex/config.toml` (`model`)
 - **Claude-to-Codex details**: `.claude/rules/codex-delegation.md`
 - **Root bootstrap**: `AGENTS.md` is the single root contract for both the main agent and every CLI runtime; no `CLAUDE.md` and no symlinks are involved

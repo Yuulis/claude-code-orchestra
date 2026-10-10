@@ -194,6 +194,9 @@
     "EDITOR": "code --wait",
     "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1",
     "CLAUDE_CODE_SUBAGENT_MODEL": "sonnet",
-    "CODEX_MODEL": "gpt-5.6-sol"
+    "CODEX_MODEL": "gpt-6.1-sol",
+    "CODEX_MODEL_LUNA": "gpt-6-luna",
+    "CODEX_MODEL_ASTRA": "gpt-6-astra",
+    "ANTIGRAVITY_MODEL": "gemini-3.1-pro-high"
   }
 }

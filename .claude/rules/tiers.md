@@ -36,6 +36,7 @@ and referenced by skills, rules, and configuration.
   Validation / Risks); file patches; validation commands.
 - **Model**: Codex CLI model (`CODEX_MODEL` env in `.claude/settings.json`,
   mirrored in `.codex/config.toml`).
+  Sub-lanes, effort policy, and model env vars: `.claude/rules/model-routing.md`.
 - **Guardrails**: See root `AGENTS.md` section "Guardrails (Completion Verification)".
 
 ## Tier 3 -- `fable` (Rare Escalation / Final Authority)

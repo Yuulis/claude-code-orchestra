@@ -3,17 +3,34 @@
 UserPromptSubmit hook: Route to appropriate agent based on user intent.
 
 Routing rules (checked in order, most specific first):
+- Explicit cross-model second opinion → Antigravity (antigravity-system skill)
 - Design arbitration / stuck problems / final review → Fable advisor (rare)
 - Explicit review/rescue/delegation phrases → Codex Plugin commands
 - Planning, design, complex code → Codex CLI
 - Codebase understanding / large analysis / external research → Opus subagent
 
-Multimodal files (PDF/video/audio/image) are handled directly by Claude (Opus 4.7+).
+Multimodal files (PDF/video/audio/image) are handled directly by Claude.
 """
 
 import json
 import re
 import sys
+
+# Triggers for Antigravity (cross-model second opinion; a verification layer,
+# not a tier — see .claude/rules/antigravity-delegation.md). Checked before
+# Fable so an explicit request for another model family is not answered by
+# a Claude-family advisor.
+ANTIGRAVITY_TRIGGERS = {
+    "ja": [
+        "セカンドオピニオン",
+        "別のモデル",
+    ],
+    "en": [
+        "second opinion",
+        "cross-check",
+        "another model",
+    ],
+}
 
 # Triggers for Fable advisor (rare escalation: arbitration, stuck, final review)
 FABLE_TRIGGERS = {
@@ -227,8 +244,14 @@ def detect_agent(prompt: str) -> tuple[str | None, str]:
     """
     prompt_lower = prompt.lower()
 
+    # Antigravity triggers (explicit cross-model second-opinion requests)
+    for lang, triggers in ANTIGRAVITY_TRIGGERS.items():
+        for trigger in triggers:
+            if matches_trigger(trigger, prompt_lower, lang):
+                return "antigravity", trigger
+
     # Fable triggers (rare escalation: arbitration, stuck, final review)
-    # Checked FIRST — narrow, high-specificity triggers that must not be
+    # Checked right after Antigravity — narrow, high-specificity triggers that must not be
     # swallowed by the broader Codex keywords.
     for lang, triggers in FABLE_TRIGGERS.items():
         for trigger in triggers:
@@ -271,7 +294,25 @@ def main():
         # matches nothing on an empty or one-character prompt anyway.
         agent, trigger = detect_agent(prompt)
 
-        if agent == "fable":
+        if agent == "antigravity":
+            output = {
+                "hookSpecificOutput": {
+                    "hookEventName": "UserPromptSubmit",
+                    "additionalContext": (
+                        f"[Antigravity] Detected '{trigger}' — a cross-model second "
+                        "opinion was requested. Use the antigravity-system skill: write "
+                        "the prompt to a file, then `python3 .claude/skills/_shared/"
+                        "cli_consult.py --cli antigravity --model "
+                        '"${ANTIGRAVITY_MODEL:-gemini-3.1-pro-high}" --prompt-file '
+                        "<path> --label second-opinion`. One opinion per decision; "
+                        "policy: .claude/rules/antigravity-delegation.md. For in-family "
+                        "arbitration of a stuck decision, use fable-advisor instead."
+                    ),
+                }
+            }
+            print(json.dumps(output))
+
+        elif agent == "fable":
             output = {
                 "hookSpecificOutput": {
                     "hookEventName": "UserPromptSubmit",

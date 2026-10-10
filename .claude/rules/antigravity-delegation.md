@@ -1,80 +1,67 @@
 # Antigravity Delegation Rule
 
-**Antigravity CLI (`agy`, Gemini 3.x) provides cross-model second opinions on Codex-produced designs/plans and pre-ship risk assessments.**
+**Antigravity CLI (`agy`, Gemini) is a cross-model second-opinion layer. It is
+not a tier.**
 
-It does not add a third code-review lane — raw implementation review stays with
-`/codex:review` and `/team-execute --review-only`. Antigravity examines *judgments*
-(designs, plans, synthesized risk assessments), not diffs by default.
+Routing between tiers is unchanged (`AGENTS.md`, `.claude/rules/delegation.md`,
+`.claude/rules/tiers.md`): Codex designs, plans, and reviews; Claude subagents
+implement; `fable-advisor` arbitrates rarely. Every one of those is either Claude
+or Codex. Antigravity adds an independent judgment from a **different model
+family** on top of them — it verifies, it does not author, and it examines
+*judgments* (designs, plans, risk assessments), not raw diffs.
 
-> Antigravity CLI is the successor to Gemini CLI (rebranded 2026-05, Gemini CLI retired 2026-06).
-> Its old roles are NOT restored: multimodal → Claude directly, research → primarily Opus subagents
-> (Antigravity may assist in the information-gathering phase as needed — see below).
-> The primary role is **independent verification by a different model family**.
->
-> Preflight: ensure the CLI is current (see antigravity-system skill).
-
-## Role: Cross-Model Second Opinion
-
-Claude-led planning with Codex implementation (`.claude/rules/codex-delegation.md`,
-`.claude/rules/model-routing.md`) remains the default pipeline. Antigravity adds a
-**third, independent perspective** (Gemini 3.x) on top of Claude + Codex — it
-verifies, it does not author.
-
-### Auxiliary Research Role
-
-During the information-gathering phase, Antigravity may be used **as needed** to
-supplement the primary research lane (Opus `general-purpose` subagent) — e.g., to
-get a different model family's read on ambiguous external information. This is an
-auxiliary option, not a default lane; routine research still goes to Opus subagents.
-
-## When to Use Antigravity
+## When to Use
 
 Consult Antigravity when **any** of these apply:
 
-- A Codex-produced design/plan has high stakes (architecture, data model, security-sensitive)
-  and you want independent cross-examination before user approval.
-- Claude and Codex disagree, or you are uncertain which of two approaches is right —
-  use Antigravity as a tiebreaker with explicit trade-off framing.
-- User explicitly asks for a "second opinion", "cross-check", or "another model's view".
-- Final review gate before shipping a large change (complements `/codex:review` with
-  a different model family's blind spots).
+- A Codex design or plan is high-stakes (architecture, data model,
+  security-sensitive) and should be cross-examined before user approval.
+- Codex and a Claude agent disagree and the evidence does not settle it — ask
+  for a tiebreak with explicit trade-off framing, before or alongside an
+  escalation to `fable-advisor`.
+- The user explicitly asks for a "second opinion", "cross-check", or "another
+  model's view" (セカンドオピニオン, 別のモデル).
+- A final gate before shipping a large change, complementing
+  `/codex:adversarial-review` with another model family's blind spots.
 
-## When NOT to Use Antigravity
+## When NOT to Use
 
-| Task | Correct Owner |
-|------|---------------|
-| Planning, design, complex implementation | **Codex CLI** (`codex-delegation.md`) |
-| Debugging, root cause analysis | **Codex CLI** / codex-debugger |
-| External research, web survey | **general-purpose subagent** (Opus, WebSearch/WebFetch) — Antigravity may assist as needed, not by default |
-| Codebase analysis | **general-purpose subagent** (Opus 1M context) |
-| Multimodal input (PDF, images, etc.) | **Claude directly** |
-| Simple edits, git operations, tests | **Claude directly** |
-
-Do NOT run Antigravity by default on every task — it is a verification layer for
-high-stakes or contested decisions, not a parallel pipeline. One second opinion per
-decision is enough; do not loop models against each other.
+- Planning, design, review, implementation, debugging, research: use the routes
+  in `.claude/rules/delegation.md` (Codex, `general-purpose-sonnet`,
+  `general-purpose-opus`, `codex-debugger`).
+- Read-only consultations that must be confined: the wrapper refuses
+  `--read-only` for Antigravity (headless mode auto-approves every tool call);
+  use Codex with `--sandbox read-only` instead.
+- Routine decisions. **One second opinion per decision** — never loop models
+  against each other.
 
 ## Conflict Resolution
 
-Antigravity identifies risks; **Claude makes the final synthesis**. Where Codex and
-Antigravity agree, proceed. Where they disagree on a high-impact decision and the
-disagreement cannot be resolved from evidence, surface both positions to the user
-with Claude's own recommendation — never resolve it with another model round-trip.
+Antigravity's output is one reviewer's opinion. The main agent synthesizes:
+where Codex and Antigravity agree, proceed; where they disagree on a
+high-impact decision that evidence cannot settle, surface both positions to the
+user with a recommendation (or escalate to `fable-advisor`) — never resolve it
+with another model round-trip.
 
 ## Prompt Contract (Always Include)
 
 1. The decision under review (single sentence)
-2. The proposal being examined (Codex's design/plan, or the two competing options)
+2. The proposal being examined (the design/plan, or the two competing options)
 3. Constraints the proposal must satisfy
-4. Explicit ask: "identify flaws, risks, and superior alternatives — do not restate the proposal"
+4. Explicit ask: "identify flaws, risks, and superior alternatives — do not
+   restate the proposal"
 5. Output format (structured markdown sections)
 
 ## How to Consult
 
-Exec syntax, model selection, sandbox flags, and subagent patterns: see the
-**antigravity-system skill** (`.claude/skills/antigravity-system/SKILL.md`) —
-this rule covers only *when* to delegate.
+Always through the shared wrapper with the model pinned:
 
-## Language Protocol
+```bash
+python3 .claude/skills/_shared/cli_consult.py --cli antigravity \
+  --model "${ANTIGRAVITY_MODEL:-gemini-3.1-pro-high}" \
+  --prompt-file <path> --label second-opinion --caller <your agent name>
+```
 
-See `.claude/rules/language.md` (SSOT): ask Antigravity in English; report to the user per that rule.
+Templates and result handling: the `antigravity-system` skill
+(`.claude/skills/antigravity-system/SKILL.md`). Ask Antigravity in English; the
+user-facing report follows `AGENTS.md` `## Language Protocol`.

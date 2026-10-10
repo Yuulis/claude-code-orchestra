@@ -34,11 +34,7 @@ codex login status
 | high            | 600s                |
 | xhigh           | 900s                |
 
-Pass `--timeout <sec>` to the wrapper to match the table above (default: 600s). For the underlying MCP server integration, configure in config.toml:
-```toml
-[mcp_servers.codex]
-tool_timeout_sec = 600
-```
+Pass `--timeout <sec>` to the wrapper to match the table above (default: 600s). The default effort is `high`; the `xhigh` row applies only when the user explicitly asked for it (`.claude/rules/model-routing.md`).
 
 ## Git Repository Error
 

@@ -144,7 +144,7 @@ When the `openai/codex-plugin-cc` plugin is installed, use these structured work
 /codex:rescue --resume apply the top fix from the last run
 
 # Use specific model/effort
-/codex:rescue --model gpt-5.5-mini --effort medium investigate the flaky test
+/codex:rescue --model gpt-6-luna --effort high summarize the flaky-test logs
 ```
 
 ### D. Plugin vs Direct CLI Decision

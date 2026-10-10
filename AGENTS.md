@@ -77,6 +77,9 @@ fewer, named gates and skill-bundled lead scripts, and user-facing interaction.
 - External research and large-context analysis → `general-purpose-opus`.
 - Unknown root cause → `codex-debugger`.
 - Repeatedly stuck or high-stakes arbitration → `fable-advisor`.
+- Cross-model second opinion on a high-stakes or contested design/plan →
+  `antigravity-system` (a verification layer, not a tier;
+  `.claude/rules/antigravity-delegation.md`).
 
 Delegate as soon as any trigger fires — do not investigate first and then
 decide: a third file must be read, an unread file must be opened, output is
@@ -97,6 +100,7 @@ Use the canonical workflows in `.claude/skills/`:
 - Delivery: `feature`, `plan`, `tdd`, `team-execute`, `troubleshoot`, `simplify`.
 - Investigation: `spike`, `research-lib`, `update-lib-docs`.
 - Codex integration: `codex-system`.
+- Cross-model second opinion: `antigravity-system`.
 
 Each skill's `SKILL.md` is the executable contract. Use a skill when its name or
 trigger matches the request; do not copy its full procedure into this file.
@@ -142,6 +146,9 @@ task before acting.
 - Think and reason in English.
 - Write code, identifiers, comments, commands, and technical documents in English.
 - Communicate with the user in Japanese.
+- Exception: content under `docs/manual/**` (user-facing spec and status
+  summaries) is written in Japanese; code identifiers, commands, and paths stay
+  in English. Convention: `.claude/rules/manual-docs.md`.
 - Response style (natural Japanese, concise but complete): `.claude/rules/language.md`.
 
 ## Native Runtime Boundary

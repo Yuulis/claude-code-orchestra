@@ -1,3 +1,5 @@
+[English](README.md) | [日本語](README.ja.md)
+
 # claude-code-orchestra
 
 ![Claude Code Orchestra](./summary.png)
@@ -115,7 +117,7 @@ Confirm versions afterward:
 claude --version && codex --version
 ```
 
-The Codex model is centralized in `.claude/settings.json` (`env.CODEX_MODEL`), which every `${CODEX_MODEL:-...}` reference resolves to. `.codex/config.toml` (`model` + `model_reasoning_effort = "xhigh"`) must be kept in sync — `scripts/check.sh` verifies coherence between the two. To always use the latest model, bump that single value (currently `gpt-5.6-sol`) — no need to edit individual skill files. The `${CODEX_MODEL:-...}` fallback is just a default for when the env var is unset. Note: `update.sh` never auto-merges `.claude/settings.json` — downstream users must bump `env.CODEX_MODEL` manually after reviewing the Phase 5 diff.
+The Codex model is centralized in `.claude/settings.json` (`env.CODEX_MODEL`), which every `${CODEX_MODEL:-...}` reference resolves to. `.codex/config.toml` (`model` + `model_reasoning_effort = "high"`) must be kept in sync — `scripts/check.sh` verifies coherence between the two. To always use the latest model, bump that single value (currently `gpt-6.1-sol`) — no need to edit individual skill files. The `${CODEX_MODEL:-...}` fallback is just a default for when the env var is unset. Note: `update.sh` never auto-merges `.claude/settings.json` — downstream users must bump `env.CODEX_MODEL` manually after reviewing the Phase 5 diff.
 
 Claude subagent routing is explicit in `.claude/agents/`: `general-purpose-sonnet`
 and `general-purpose-opus` pin their own model aliases in frontmatter. Unspecified
@@ -151,7 +153,7 @@ below is a non-normative overview of the default setup.
 │  │                       │                              │   │
 │  │  ┌────────────────────┴─────────────────────────┐    │   │
 │  │  │ Tier 2 — Sol                                 │    │   │
-│  │  │ Codex CLI  (gpt-5.6-sol, effort xhigh)      │    │   │
+│  │  │ Codex CLI  (gpt-6.1-sol, effort high)       │    │   │
 │  │  │ → Design, planning, complex code, debugging  │    │   │
 │  │  └──────────────────────────────────────────────┘    │   │
 │  │                       │                              │   │
@@ -528,3 +530,11 @@ Automation hooks execute agent coordination and quality checks at the appropriat
 Normative definitions: `AGENTS.md` `## Language Protocol` for which language
 goes where, `.claude/rules/language.md` `## Response Style` for how the
 user-facing reply reads and how long it runs.
+
+## Fork additions
+
+This fork (`git@github.com:Yuulis/claude-code-orchestra.git`) adds the following on top of upstream. A Japanese translation of this README lives in [README.ja.md](README.ja.md).
+
+- **Antigravity CLI (`agy`, Gemini) as a cross-model second-opinion layer**: skill `antigravity-system`, rule `.claude/rules/antigravity-delegation.md`, invoked via `.claude/skills/_shared/cli_consult.py --cli antigravity`, model env `ANTIGRAVITY_MODEL=gemini-3.1-pro-high`.
+- **Codex model lanes** (`.claude/rules/model-routing.md`): default `gpt-6.1-sol` at effort `high`; `gpt-6-luna` for mechanical bulk work; `gpt-6-astra` / higher effort only when explicitly specified.
+- **`docs/manual/**` is written in Japanese** (`.claude/rules/manual-docs.md`).

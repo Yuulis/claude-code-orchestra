@@ -35,7 +35,7 @@ Task received
 
 ## Execution Examples by Pattern
 
-Each pattern: write the prompt body to a file, then call the wrapper (`.claude/skills/_shared/codex_consult.py`; see `../SKILL.md` for flags, JSON result, and exit codes). Reasoning effort follows the project's `.codex/config.toml` default (`model_reasoning_effort = "xhigh"`); override it per call with `--config model_reasoning_effort=<low|medium|high|xhigh>`.
+Each pattern: write the prompt body to a file, then call the wrapper (`.claude/skills/_shared/codex_consult.py`; see `../SKILL.md` for flags, JSON result, and exit codes). Reasoning effort follows the project's `.codex/config.toml` default (`model_reasoning_effort = "high"`); lower it per call with `--config model_reasoning_effort=<low|medium>`, and raise it (`xhigh`/`max`/`ultra`) only when the user explicitly asks — see `.claude/rules/model-routing.md`.
 
 ### Pattern 1: Architecture Review
 

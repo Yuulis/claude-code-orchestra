@@ -50,7 +50,7 @@ python3 .claude/skills/_shared/codex_consult.py (--prompt-file PATH | --prompt-s
 
 - Write the prompt body (Objective / Constraints / Relevant files / Acceptance checks / Output format) to a file and pass it via `--prompt-file`; use `--prompt-stdin` to pipe a short prompt instead. Any path works — the ad-hoc snippets below use `mktemp`, while skills write to `.claude/logs/codex/prompt-{label}.md` so the prompt sits next to the response the wrapper writes for it, which is what makes a disappointing answer diagnosable afterwards.
 - `--sandbox` defaults to `danger-full-access`, matching `.codex/config.toml`. Pass `--sandbox read-only` explicitly for planning and review calls — see Sandbox Modes below.
-- `--model` defaults to `$CODEX_MODEL`, else `gpt-5.6-sol`. `--label` is a `[a-z0-9-]+` slug used in the log filenames (default `consult`). `--timeout` defaults to 600 seconds. `--skip-git-repo-check` covers the non-Git working directory case — see `references/troubleshooting.md`.
+- `--model` defaults to `$CODEX_MODEL`, else `gpt-6.1-sol` (sub-lanes: `.claude/rules/model-routing.md`). `--label` is a `[a-z0-9-]+` slug used in the log filenames (default `consult`). `--timeout` defaults to 600 seconds. `--skip-git-repo-check` covers the non-Git working directory case — see `references/troubleshooting.md`.
 - `--config KEY=VALUE` (repeatable) forwards a Codex config override, e.g. `--config model_reasoning_effort=low` for a cheap question. Keys naming a sandbox or approval setting are refused: `--sandbox` must stay the single visible statement of what Codex is allowed to touch.
 - The wrapper prints exactly one JSON object: `{ok, exit_code, model, sandbox, write_access, timed_out, duration_sec, response_file, stderr_file, response_chars, response_head, error}`. `response_head` is only a ~400-char preview — read the file at `response_file` for the full response, and `stderr_file` (non-null whenever Codex wrote to stderr) when diagnosing a failure.
 - Exit codes: `0` succeeded · `1` bad args or unreadable prompt file · `2` `codex` not on PATH · `3` codex exited non-zero or timed out.
@@ -251,7 +251,7 @@ When the `openai/codex-plugin-cc` plugin is installed, these slash commands are 
 /codex:rescue investigate why the tests started failing
 /codex:rescue fix the failing test with the smallest safe patch
 /codex:rescue --resume apply the top fix from the last run
-/codex:rescue --model gpt-5.5-mini --effort medium investigate flaky test
+/codex:rescue --model gpt-6-luna --effort high summarize the flaky-test logs
 /codex:rescue --background investigate the regression
 ```
 

@@ -97,7 +97,7 @@ def test_success_writes_response_and_reports_head(tmp_path: Path) -> None:
     payload = json.loads(result.stdout)
     assert payload["ok"] is True
     assert payload["exit_code"] == 0
-    assert payload["model"] == "gpt-5.6-sol"
+    assert payload["model"] == "gpt-6.1-sol"
     # The wrapper's default matches .codex/config.toml rather than being
     # quietly stricter than the CLI a caller would have run by hand.
     assert payload["sandbox"] == "danger-full-access"

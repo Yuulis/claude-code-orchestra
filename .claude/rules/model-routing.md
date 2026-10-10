@@ -1,51 +1,46 @@
-# Model Routing (SSOT)
+# Model Routing Addendum (Tier 2 Sub-Lanes)
 
-Canonical lane map for model selection across Claude Code, Codex CLI, and
-Antigravity CLI. Contracts and skills reference this file instead of restating
-the tables. Bump model versions in `.claude/settings.json` `env` only.
+Fork-local addendum to `.claude/rules/tiers.md`. *Which tier* handles a task is
+decided by `AGENTS.md`, `.claude/rules/delegation.md`, and `tiers.md`; this file
+only picks the Codex model and reasoning effort *inside* Tier 2 `sol`, and lists
+the environment variables that carry those choices.
 
-## Claude-Side Orchestration
+## Codex Sub-Lanes
 
-When Claude Code (Fable 5 or Opus — same policy for both) is the top-level agent:
+| Lane | Model (env var) | Effort | Use for |
+|------|-----------------|--------|---------|
+| Sol (default) | `CODEX_MODEL` | `high` | Every Tier 2 call unless a row below applies: design, planning, review, complex implementation, debugging. |
+| Luna (bulk) | `CODEX_MODEL_LUNA` | `high` | High-volume mechanical work whose answers are mechanically checkable: classification, fixed-field extraction, short transforms and summaries. Anything that needs judgment goes back to Sol. |
+| Astra (explicit only) | `CODEX_MODEL_ASTRA` | `high` | Only when the user explicitly names it. Never selected automatically. |
 
-| Lane | Owner | Notes |
-|------|-------|-------|
-| Planning | **Claude** (leads & finalizes) | For complex/high-stakes design (architecture, data model, security-sensitive), consult Codex `${CODEX_MODEL}` at `${CODEX_PLAN_EFFORT}` as a *design consultant*. Claude owns the plan. |
-| Implementation | **Codex subagent** | `codex exec --sandbox workspace-write`, effort `${CODEX_IMPL_EFFORT}`. Minor one-file edits stay with Claude. |
-| Review | **Claude subagents** — Sonnet default, Opus for high-risk | High-risk = security-sensitive, architecture, data model changes. For high-risk changes, additionally recommend `/codex:review` as a cross-tool lane (avoids Claude-family reviewing Claude-family plans exclusively). |
-| Research / information gathering | **Opus `general-purpose` subagent** (primary) | Antigravity (`agy`) may assist as needed — auxiliary, not a default lane. |
-| Second opinion | **Antigravity** (`agy`) | See `.claude/rules/antigravity-delegation.md`. |
-| Multimodal input | **Claude directly** | |
+```bash
+# Sol (default): model and effort come from .codex/config.toml
+python3 .claude/skills/_shared/codex_consult.py --prompt-file <path> --sandbox read-only
 
-## Codex-Side Orchestration (sol / terra / luna)
+# Luna: bulk mechanical work
+python3 .claude/skills/_shared/codex_consult.py --prompt-file <path> \
+  --model "${CODEX_MODEL_LUNA:-gpt-6-luna}" --label bulk
+```
 
-When Codex CLI is the top-level agent (governed by `.codex/AGENTS.md` +
-`.codex/config.toml`): planning runs on `gpt-5.6-sol` at effort **high or
-above**; implementation and review run mainly on `gpt-5.6-sol` at
-**low/medium** effort, routed to terra/luna where the task profile fits:
+## Effort Policy
 
-| Lane | Model | Effort | Use for |
-|------|-------|--------|---------|
-| Luna | `gpt-5.6-luna` | low | High-volume mechanical work with little judgment and mechanically checkable answers: classification/labeling, fixed-field extraction, short transforms/summaries. Escalate hard cases to Terra. |
-| Terra | `gpt-5.6-terra` | low/medium | Everyday default candidate: typical feature implementation, test addition, refactoring, reports, issue handling, document/code review. |
-| Sol | `gpt-5.6-sol` | high+ | Redo-cost exceeds model cost: cross-repo design changes, hard root-cause analysis, long agent workflows, security review — and all planning. |
+- Default reasoning effort is `high` (`.codex/config.toml`
+  `model_reasoning_effort`). Callers do not override it.
+- `xhigh`, `max`, and `ultra` are used only when the user explicitly asks for
+  them: `--config model_reasoning_effort=<level>`. The same applies to
+  `--model "${CODEX_MODEL_ASTRA:-gpt-6-astra}"`.
+- Lowering effort (`low`, `medium`) for a cheap, narrow question is allowed.
+- `/codex:rescue` uses the local Codex config; pass `--model` / `--effort` only
+  under the same rules. It has no model aliases worth using.
 
-Rules:
+## Environment Variables (`.claude/settings.json` `env`)
 
-- When the user specifies a model, obey it. When the right lane is ambiguous,
-  asking the user is acceptable.
-- Reasoning effort levels: `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`.
-- Override per invocation with `-m <model>` and `-c model_reasoning_effort=<level>`.
+Model IDs live here only; change them here.
 
-## Environment Variables (`.claude/settings.json` env)
-
-| Variable | Default | Lane |
-|----------|---------|------|
-| `CODEX_MODEL` | `gpt-5.6-sol` | Codex default (planning consult, complex implementation) |
-| `CODEX_MODEL_TERRA` | `gpt-5.6-terra` | Everyday implementation/review alternate |
-| `CODEX_MODEL_LUNA` | `gpt-5.6-luna` | Mechanical bulk alternate |
-| `CODEX_RESCUE_MODEL` | `gpt-5.6-terra` | Cheap-retry rescue lane (`/codex:rescue`); escalate to sol high manually when truly stuck |
-| `CODEX_PLAN_EFFORT` | `high` | Threaded into design-consult calls |
-| `CODEX_IMPL_EFFORT` | `medium` | Threaded into implementation/review calls |
-| `ANTIGRAVITY_MODEL` | `gemini-3.1-pro` | Second opinion / auxiliary research |
-| `CLAUDE_CODE_SUBAGENT_MODEL` | *(unset)* | Intentionally not set — a global value overrides per-spawn `model` params and would break the Sonnet-default review lane. Defined agents pin their model via frontmatter (`.claude/agents/*.md`: `model: opus`); Agent-Teams teammates get an explicit per-spawn model (implementers: opus, reviewers: sonnet/opus). |
+| Variable | Value | Notes |
+|----------|-------|-------|
+| `CODEX_MODEL` | `gpt-6.1-sol` | Tier 2 default. Must equal `.codex/config.toml` `model` and `codex_consult.py` `DEFAULT_MODEL` (`scripts/check.sh` enforces this). |
+| `CODEX_MODEL_LUNA` | `gpt-6-luna` | Bulk lane. |
+| `CODEX_MODEL_ASTRA` | `gpt-6-astra` | Explicit-only escalation. |
+| `ANTIGRAVITY_MODEL` | `gemini-3.1-pro-high` | Cross-model second opinion (`antigravity-system` skill). The slug carries the thinking level; `agy` rejects a bare `gemini-3.1-pro` without `--effort`. |
+| `CLAUDE_CODE_SUBAGENT_MODEL` | `sonnet` | Fallback for subagents that name no model. Since Claude Code v2.1.251 the order is per-invocation `model` > agent frontmatter `model` > this variable, so `model: opus` / `model: fable` frontmatter still wins. |

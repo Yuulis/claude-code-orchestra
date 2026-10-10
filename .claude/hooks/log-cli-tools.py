@@ -44,7 +44,7 @@ def extract_codex_prompt(command: str) -> str | None:
 
     The prompt is the final positional argument, so the command is tokenized
     and scanned from the end. Matching the first quoted string instead would
-    pick up a flag value such as `--model "gpt-5.6-sol"`.
+    pick up a flag value such as `--model "gpt-6.1-sol"`.
     """
     if not re.search(r"(^|\s|/)codex\s+exec\b", command):
         return None

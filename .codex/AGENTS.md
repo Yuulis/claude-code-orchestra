@@ -14,10 +14,13 @@ Source of truth: `.codex/config.toml`
 
 | Key                      | Value          |
 |--------------------------|----------------|
-| `model`                  | `gpt-5.6-sol`  |
-| `model_reasoning_effort` | `xhigh`        |
+| `model`                  | `gpt-6.1-sol`  |
+| `model_reasoning_effort` | `high`         |
 | `approval_policy`        | `never`        |
 | `sandbox_mode`           | `danger-full-access` |
+
+Sub-lanes (`gpt-6-luna` bulk, `gpt-6-astra` explicit-only) and the effort
+policy: `.claude/rules/model-routing.md`.
 
 ## Sandbox Discipline
 

@@ -375,7 +375,7 @@ def test_update_never_overwrites_codex_config(tmp_path: Path) -> None:
 
     config = target / ".codex/config.toml"
     edited = config.read_text(encoding="utf-8").replace(
-        'model_reasoning_effort = "xhigh"', 'model_reasoning_effort = "medium"'
+        'model_reasoning_effort = "high"', 'model_reasoning_effort = "medium"'
     )
     assert edited != config.read_text(encoding="utf-8")
     config.write_text(edited, encoding="utf-8")
