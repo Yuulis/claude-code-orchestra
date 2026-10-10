@@ -231,7 +231,10 @@ def test_antigravity_captures_text_output_verbatim(tmp_path: Path) -> None:
     assert payload["write_access"] is True
 
     argv = json.loads(argv_log.read_text(encoding="utf-8"))
-    assert argv[1] == "-p"
+    assert "-p" not in argv
+    assert argv[-1].startswith("-p=Objective: research")
+    # Every flag precedes the prompt: agy's -p takes the next element verbatim.
+    assert argv.index("--model") < len(argv) - 1
     assert argv[argv.index("--model") + 1] == "fast"
     # Headless is already unrestricted: there is no permission flag to send,
     # and inventing one would misreport what the callee is actually doing.
@@ -354,7 +357,7 @@ def test_prompt_stdin_is_accepted(tmp_path: Path) -> None:
 
     assert result.returncode == 0, result.stderr
     argv = json.loads(argv_log.read_text(encoding="utf-8"))
-    assert argv[-1] == "Objective: piped prompt"
+    assert argv[-1] == "-p=Objective: piped prompt"
 
 
 def test_both_prompt_sources_is_an_argument_error(tmp_path: Path) -> None:

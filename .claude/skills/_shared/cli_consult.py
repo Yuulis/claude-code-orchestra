@@ -90,7 +90,11 @@ CLI_SPECS: dict[str, dict] = {
         # unrestricted default it simply means `read_only` has no
         # implementation to map onto, which `--read-only` reports as an error
         # rather than granting write access under a read-only-looking flag.
-        "base": ["agy", "-p"],
+        # agy's -p consumes the next argv element as the prompt, so a flag
+        # placed after a bare -p (e.g. --model) would be taken as the prompt.
+        # The prompt is attached to the flag as the final element instead.
+        "base": ["agy"],
+        "prompt_flag": "-p=",
         "read_only": None,
         "write": [],
         "model_flag": "--model",
@@ -512,7 +516,7 @@ def main() -> int:  # noqa: C901 — single-function CLI entry point
         argv.extend([spec["resume_flag"], args.resume])
     argv.extend(args.cli_arg)
     # The prompt is always the final argv element and is never shell-expanded.
-    argv.append(prompt)
+    argv.append(spec.get("prompt_flag", "") + prompt)
 
     timed_out = False
     error: str | None = None
