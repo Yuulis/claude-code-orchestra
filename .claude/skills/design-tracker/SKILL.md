@@ -26,7 +26,7 @@ only through the runtime's own description-based skill selection.
   "記録して", `/design-tracker`. This is the reliable path.
 - **Model invocation** from the description, at the runtime's discretion.
   Claude Code discovers the skill through `.claude/skills` → `.claude/skills`;
-  Codex through `.codex/config.toml`'s `path = ".claude/skills/design-tracker"`.
+  Codex through the `design-tracker` link in its project skills directory.
 - **No hook mechanism.** `.claude/hooks/` contains no design-tracker branch, and
   the words a design conversation actually uses (設計 / design / architecture)
   are claimed by `CODEX_TRIGGERS` in `agent-router.py`, which injects a *Codex*

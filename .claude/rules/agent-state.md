@@ -5,6 +5,10 @@ contract and the CLI-executor contract. It is template-owned and an immutable
 bootstrap. Repository-specific and cross-session state belongs in
 `.claude/STATE.md`, never in that bootstrap path.
 
+`## Main Agent` records the *default* main runtime, not a lock: a session's
+actual main agent is decided by its entry point (root `AGENTS.md`, "Codex
+Sessions: Role by Entry Point").
+
 ## State Ownership
 
 | Section | Owner / writers | Content |

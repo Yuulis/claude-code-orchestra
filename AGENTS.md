@@ -21,15 +21,29 @@ Where to go next, only as the task needs it:
 |---------|------|
 | Any agent needing tier details | [`.claude/rules/tiers.md`](.claude/rules/tiers.md) |
 | Any agent needing shared standards | [`.claude/rules/`](.claude/rules/) -- coding, testing, security, delegation |
-| Codex | [`.codex/AGENTS.md`](.codex/AGENTS.md) -- model, sandbox, enabled skills |
+| Codex | [`.codex/AGENTS.md`](.codex/AGENTS.md) -- role by entry point, Codex-only routing, model, skills |
 | Antigravity | [`.agents/AGENTS.md`](.agents/AGENTS.md) -- headless behaviour and limits |
 
 `.claude/` contains the canonical detailed rules and capabilities. Claude Code
-is the default main agent; the active main is recorded in
-[`.claude/STATE.md`](.claude/STATE.md).
+is the default main agent, recorded in [`.claude/STATE.md`](.claude/STATE.md);
+a session the user starts with `codex` has Codex as main instead (next section).
 [`.claude/docs/INDEX.md`](.claude/docs/INDEX.md) is the full registry, and
 [`.claude/docs/change_main.md`](.claude/docs/change_main.md) changes the main
 agent -- read it only when the user asks to change it.
+
+## Codex Sessions: Role by Entry Point
+
+Codex only (Claude Code skips this section). The role comes from how the session
+started, never from `.claude/STATE.md`:
+
+- **Executor** if the prompt opens with `[orchestra-role: executor]`, or the
+  environment has `ORCHESTRA_ROLE=executor` (both set by `codex_consult.py`) or
+  `CLAUDECODE=1`. Do the task yourself; never delegate it.
+- **Main** otherwise -- an interactive `codex` the user started. Read
+  `.codex/AGENTS.md` before routing: its Codex-only routes replace every Claude
+  route in this file. You (`gpt-6.1-sol`) keep the judgment work; bulk
+  mechanical work goes to `gpt-6-luna` through `codex_consult.py`. No Claude
+  subagents and no `fable-advisor`: when stuck, escalate to the user.
 
 ## Mission
 
@@ -118,7 +132,7 @@ For implementation, report changed files, commands run, test results, and risks.
 
 ## Context and Document Ownership
 
-- `.claude/STATE.md`: active main agent, repository identity, and working state.
+- `.claude/STATE.md`: default main agent, repository identity, and working state.
 - `.claude/docs/DESIGN.md`: macro requirements and architecture.
 - `PROGRESS.md` and `.claude/checkpoints/`: rolling and detailed progress.
 - `.claude/rules/`: coding, testing, security, routing, tier, and CLI rules.
@@ -165,11 +179,10 @@ task before acting.
   — nothing in it requires opening another file first — and it is a real file,
   never a symlink. No `CLAUDE.md` may sit beside it, because Claude Code would
   load that instead and never read this contract.
-- `.agents/` holds the tool-neutral subagent schema — `AGENTS.md` (the CLI
-  subagent contract), `tiers.md`, `INDEX.md`, `change_main.md`, `check.sh`, and
-  the `workflows/` adapters for non-Claude CLIs.
-- `.codex/` holds Codex's own schema — `AGENTS.md` and `config.toml`, whose
-  `skills.config` `path=` entries point directly at `.claude/skills/`.
+- `.agents/` holds `AGENTS.md` (Antigravity's adapter) and `skills/`: relative
+  links to the runtime-neutral `.claude/skills/` entries, which Codex discovers.
+- `.codex/` holds Codex's own schema — `AGENTS.md` (Codex roles and routing) and
+  `config.toml` (model, sandbox, and the `log-cli-tools.py` hook).
 - Shared content is referenced by path, never copied: no rules, hooks, docs,
   logs, or checkpoints are mirrored into `.agents/` or `.codex/`.
   `scripts/check.sh` verifies the boundary.
@@ -232,7 +245,7 @@ a stalled call has no deadline.
 | Callee | Invocation | Notes |
 |--------|-----------|-------|
 | Claude Code | `python3 .claude/skills/_shared/cli_consult.py --cli claude --prompt-file <path>` | Wraps `claude -p --output-format json`; returns the envelope's `result` as the response and its `session_id` for chaining via `--resume` |
-| Codex | `python3 .claude/skills/_shared/codex_consult.py --prompt-file <path>` | Wraps `codex exec`; sandbox modes and `--config` overrides are validated there. Flags and exit codes: `.claude/skills/codex-system/SKILL.md` |
+| Codex | `python3 .claude/skills/_shared/codex_consult.py --prompt-file <path>` | Wraps `codex exec`; sandbox modes and `--config` overrides are validated there. Marks the callee an executor (prompt preamble + `ORCHESTRA_ROLE=executor`) and refuses to run inside one. Flags and exit codes: `.claude/skills/codex-system/SKILL.md` |
 | Antigravity | `python3 .claude/skills/_shared/cli_consult.py --cli antigravity --prompt-file <path>` | Wraps `agy -p`; text output is captured verbatim and the exit code is the success signal. Its headless mode auto-approves every tool call, so it cannot be confined from the caller and refuses `--read-only` |
 
 Both wrappers share one contract: prompt via `--prompt-file`/`--prompt-stdin`
@@ -280,7 +293,7 @@ Rules:
   omitting `--model` for a peer CLI keeps that CLI's own default).
 - Bound the call: keep the wrapper's timeout, and cap agentic turns for
   long-running peers where the callee supports it (e.g.
-  `--cli-arg --max-turns --cli-arg 8` for Claude Code). With no sandbox in the
+  `--cli-arg=--max-turns --cli-arg 8` for Claude Code). With no sandbox in the
   way, the turn cap and the timeout are what bound a run that goes wrong.
 - The caller MUST independently verify the callee's result per the Guardrails
   below — a delegated CLI is never trusted on its self-report. This applies in

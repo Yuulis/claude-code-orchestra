@@ -13,8 +13,8 @@ and referenced by skills, rules, and configuration.
 - **Inputs**: User prompt, `AGENTS.md`, tier definitions, and relevant
   product-native rules.
 - **Outputs**: Direct edits, user-facing responses, delegation calls to other tiers.
-- **Default runtime**: Claude Code. The active runtime is recorded in
-  `.claude/STATE.md`.
+- **Default runtime**: Claude Code, recorded in `.claude/STATE.md`. A session
+  the user starts with `codex` runs Codex as main instead (root `AGENTS.md`).
 - **Default executor models**: Claude models configured through
   `.claude/settings.json`.
 - **Tier-1 norm**: Implementation-work subagents run on Sonnet; research and

@@ -5,7 +5,7 @@
 | Directory  | Owns                                                                          |
 |------------|-------------------------------------------------------------------------------|
 | `.claude/` | Main agent runtime: rules, skills, agents, hooks, docs, logs, checkpoints, state, settings |
-| `.agents/` | Antigravity's native directory: its runtime adapter                            |
+| `.agents/` | Antigravity's runtime adapter, and `skills/` links Codex discovers            |
 | `.codex/`  | Codex's native directory: adapter contract and native configuration            |
 
 ## Entries
@@ -20,7 +20,7 @@
 | Cross-model second opinion    | normative             | `.claude/rules/antigravity-delegation.md`           | When to consult Antigravity (verification layer, not a tier) |
 | Manual docs convention        | normative             | `.claude/rules/manual-docs.md`                      | Japanese spec/status summaries under `docs/manual/` |
 | Antigravity adapter           | normative             | `.agents/AGENTS.md`                           | Headless behaviour, why `--read-only` is refused |
-| Codex adapter                 | normative             | `.codex/AGENTS.md`                            | Codex model config, sandbox discipline, enabled skills |
+| Codex adapter                 | normative             | `.codex/AGENTS.md`                            | Codex role by entry point, Codex-only routing, model config, skills |
 | Shared rules                  | normative             | `.claude/rules/`                              | Coding, testing, security, routing, and state rules |
 | Shared skills                 | normative             | `.claude/skills/`                             | Workflow and deterministic helper implementations |
 | Agent definitions             | normative             | `.claude/agents/`                             | Model-specific executor definitions |

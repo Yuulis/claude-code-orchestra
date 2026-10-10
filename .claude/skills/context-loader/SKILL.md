@@ -83,6 +83,9 @@ default is to delegate, and working alone is the exception. Before the first
 3. Split independent units and launch them **in one message** so they run in
    parallel.
 
+In a Codex session, route with `.codex/AGENTS.md` instead: a Codex main has no
+Claude subagents, and a Codex executor does the task itself.
+
 Deciding the route after investigating is the anti-pattern the rule names: the
 investigation was itself the delegable work. When both routes look defensible,
 delegate.

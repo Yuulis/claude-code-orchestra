@@ -1,8 +1,12 @@
 # Changing the Main Agent
 
 Read this runbook only when the user explicitly asks to change the main agent.
-Claude Code is the initial default. The active selection is recorded in
-`.claude/STATE.md` under `## Main Agent`.
+Claude Code is the initial default, recorded in `.claude/STATE.md` under
+`## Main Agent`. That value is a default, not a lock: each session's main agent
+is decided by its entry point -- `claude` makes Claude Code main, an interactive
+`codex` makes Codex main (root `AGENTS.md` "Codex Sessions: Role by Entry
+Point"). Starting the other runtime needs no change here; this runbook changes
+the default.
 
 ## Meaning of Main Agent
 
@@ -58,7 +62,8 @@ human-readable discovery path back to root `AGENTS.md` or the canonical
 ## Validation
 
 - Start the target runtime in a disposable session and confirm it identifies
-  itself as the main agent from `.claude/STATE.md`.
+  itself as the main agent (by entry point; `.claude/STATE.md` names the
+  default).
 - Confirm it can invoke one shared skill and route one executor without
   duplicating shared files into its native directory.
 - Run `bash scripts/check.sh` and the full test suite.

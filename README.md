@@ -182,10 +182,11 @@ still runs the acceptance checks and inspects the diff.
 
 `.claude/` is the physical source for the agent runtime: rules, skills, agent
 definitions, hooks, project documents, and state. `.agents/` (Antigravity) and
-`.codex/` (Codex) are each a runtime's native directory and hold exactly one
-thing — that runtime's entry contract. Every shared document lives under
-`.claude/` and is referenced by path, never copied. Nothing in the layout is
-reached through a symlink.
+`.codex/` (Codex) are each a runtime's native directory and hold that runtime's
+entry contract and native settings. Every shared document lives under
+`.claude/` and is referenced by path, never copied. The only symlinks are the
+`.agents/skills/` entries, which let Codex discover the runtime-neutral skills
+in `.claude/skills/`.
 
 ```
 .
@@ -211,11 +212,12 @@ reached through a symlink.
 │   └── checkpoints/             # Session checkpoints (git-ignored)
 │
 ├── .agents/                     # Antigravity's native directory
-│   └── AGENTS.md                # Antigravity adapter: headless behaviour and limits
+│   ├── AGENTS.md                # Antigravity adapter: headless behaviour and limits
+│   └── skills/                  # Links to runtime-neutral .claude/skills/ entries, for Codex discovery
 │
 ├── .codex/                      # Codex's native directory
-│   ├── AGENTS.md                # Codex adapter: model config, sandbox discipline, enabled skills
-│   └── config.toml              # Native configuration (never overwritten); skills point to .claude/skills/
+│   ├── AGENTS.md                # Codex adapter: role by entry point, Codex-only routing, model config
+│   └── config.toml              # Native configuration (never overwritten); hook points to .claude/hooks/
 │
 ├── tests/                      # Contract tests for the template's own scripts and docs
 │
@@ -231,6 +233,13 @@ completion-verification guardrails are all in the file that gets loaded. From
 there each runtime reads its own short adapter (`.codex/AGENTS.md`,
 `.agents/AGENTS.md`) only for what is specific to it. No `CLAUDE.md` exists:
 Claude Code loads `AGENTS.md` only when none is found. Nothing a delegated run depends on sits behind a pointer.
+
+The main agent is decided by how the session starts. `claude` gives the full
+orchestra (Claude main, Claude subagents, Codex as Tier 2). An interactive
+`codex` makes Codex the main agent, working across Codex models only:
+`gpt-6.1-sol` keeps the judgment work and hands high-volume mechanical work to
+`gpt-6-luna`. A Codex reached through `codex_consult.py` is always an executor
+that does not delegate again. Details: `.codex/AGENTS.md`.
 
 ### Stabilizing Codex Integration
 

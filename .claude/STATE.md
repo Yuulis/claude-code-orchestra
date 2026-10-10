@@ -4,6 +4,8 @@
 
 Claude Code
 
+<!-- Default only: each session's main agent is decided by its entry point (`claude` or an interactive `codex`); see root AGENTS.md. -->
+
 ## Repository Identity
 
 <!-- Managed by /init. Re-run /init to refresh. -->

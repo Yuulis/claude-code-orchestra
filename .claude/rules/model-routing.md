@@ -22,6 +22,23 @@ python3 .claude/skills/_shared/codex_consult.py --prompt-file <path> \
   --model "${CODEX_MODEL_LUNA:-gpt-6-luna}" --label bulk
 ```
 
+## Codex-Started Mode
+
+When the user starts `codex` interactively, Codex is the main agent (root
+`AGENTS.md` "Codex Sessions: Role by Entry Point"; routing in
+`.codex/AGENTS.md`). The lanes keep their meaning, but who calls them changes:
+
+- **Sol** is the main agent itself and keeps every judgment task; it no longer
+  needs a wrapper call to reach Sol.
+- **Luna** is the only delegate, called with the Luna command above (add
+  `--caller codex-main`). Luna's result is verified by Sol like any Tier 2 result.
+- **Astra** and efforts above `high` stay explicit-only. With no
+  `fable-advisor` in this mode, a stuck task goes back to the user.
+
+Whoever calls the wrapper, the callee is an executor: `codex_consult.py`
+prefixes the prompt with `[orchestra-role: executor]`, sets
+`ORCHESTRA_ROLE=executor`, and refuses to run inside an executor.
+
 ## Effort Policy
 
 - Default reasoning effort is `high` (`.codex/config.toml`

@@ -12,7 +12,7 @@ Initialize project-owned context without expanding the always-loaded root
 ## Ownership
 
 - `.claude/docs/DESIGN.md` owns macro requirements and design.
-- `.claude/STATE.md` owns the active main agent, thin repository identity, and
+- `.claude/STATE.md` owns the default main agent, thin repository identity, and
   cross-session working state.
 - Root `AGENTS.md` is template-owned and must not be edited by this skill.
   Never create a `CLAUDE.md`: Claude Code reads `AGENTS.md` only when no
