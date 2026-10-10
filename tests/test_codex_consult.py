@@ -8,6 +8,16 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = REPO_ROOT / ".claude" / "skills" / "_shared" / "codex_consult.py"
+sys.path.insert(0, str(SCRIPT.parent))
+
+import codex_consult  # noqa: E402
+
+PREAMBLE = codex_consult.EXECUTOR_PREAMBLE
+
+
+def sent(task: str) -> str:
+    """The exact prompt Codex receives for *task*: executor preamble + task."""
+    return PREAMBLE + task
 
 
 def write_fake_codex(
@@ -18,6 +28,7 @@ def write_fake_codex(
     stderr: str = "",
     sleep: float = 0.0,
     argv_log: Path | None = None,
+    env_log: Path | None = None,
 ) -> Path:
     """Write a fake ``codex`` executable into *bin_dir* for test isolation.
 
@@ -35,6 +46,11 @@ def write_fake_codex(
         "if argv_log:",
         "    with open(argv_log, 'w', encoding='utf-8') as f:",
         "        json.dump(sys.argv, f)",
+        "import os",
+        f"env_log = {json.dumps(str(env_log) if env_log else '')}",
+        "if env_log:",
+        "    with open(env_log, 'w', encoding='utf-8') as f:",
+        "        json.dump(dict(os.environ), f)",
         f"time.sleep({sleep!r})",
         f"sys.stdout.write({stdout!r})",
         f"sys.stderr.write({stderr!r})",
@@ -56,6 +72,10 @@ def run_codex_consult(
     stdin_input: str | None = None,
 ) -> subprocess.CompletedProcess[str]:
     env = os.environ.copy()
+    # The suite may itself run inside a delegated executor, whose environment
+    # would make every call below a refused nested delegation. Each test
+    # starts from "no role" unless it sets one on purpose.
+    env.pop("ORCHESTRA_ROLE", None)
     if env_overrides:
         env.update(env_overrides)
     if no_codex:
@@ -216,7 +236,7 @@ def test_neither_prompt_source_falls_back_to_the_label_path(tmp_path: Path) -> N
     assert result.returncode == 0, result.stdout
     assert json.loads(result.stdout)["ok"] is True
     recorded_argv = json.loads(argv_log.read_text(encoding="utf-8"))
-    assert recorded_argv[-1] == "Objective: from the label path"
+    assert recorded_argv[-1] == sent("Objective: from the label path")
 
 
 def test_neither_prompt_source_and_no_default_file_is_bad_args(tmp_path: Path) -> None:
@@ -267,7 +287,7 @@ def test_prompt_with_nested_quotes_and_newline_round_trips_byte_identical(
 
     assert result.returncode == 0, result.stderr
     recorded_argv = json.loads(argv_log.read_text(encoding="utf-8"))
-    assert recorded_argv[-1] == tricky_prompt
+    assert recorded_argv[-1] == sent(tricky_prompt)
 
 
 def test_codex_model_env_var_is_honoured_and_flag_overrides_it(
@@ -319,7 +339,7 @@ def test_skip_git_repo_check_is_forwarded_before_the_prompt(tmp_path: Path) -> N
     recorded_argv = json.loads(argv_log.read_text(encoding="utf-8"))
     assert "--skip-git-repo-check" in recorded_argv
     # The prompt must stay the final element so it is never parsed as a flag.
-    assert recorded_argv[-1] == "Objective: anything"
+    assert recorded_argv[-1] == sent("Objective: anything")
 
 
 def test_skip_git_repo_check_is_absent_by_default(tmp_path: Path) -> None:
@@ -361,7 +381,7 @@ def test_config_overrides_are_forwarded_in_order(tmp_path: Path) -> None:
     argv = json.loads(argv_log.read_text(encoding="utf-8"))
     assert argv.count("--config") == 2
     assert argv[argv.index("--config") + 1] == "model_reasoning_effort=low"
-    assert argv[-1] == "Objective: anything"
+    assert argv[-1] == sent("Objective: anything")
 
 
 def test_config_override_touching_sandbox_is_refused(tmp_path: Path) -> None:
@@ -424,9 +444,9 @@ def test_prompt_is_persisted_next_to_the_response_even_from_stdin(
     prompt_file = payload["prompt_file"]
     assert not Path(prompt_file).is_absolute()
     assert prompt_file.endswith(".prompt.md")
-    assert (tmp_path / prompt_file).read_text(
-        encoding="utf-8"
-    ) == "Objective: only ever on stdin"
+    assert (tmp_path / prompt_file).read_text(encoding="utf-8") == sent(
+        "Objective: only ever on stdin"
+    )
     # The prompt and the response share one stem, so a reader finds the pair.
     assert prompt_file[: -len(".prompt.md")] == payload["response_file"][: -len(".md")]
 
@@ -682,3 +702,112 @@ def test_read_only_is_still_available_as_an_explicit_opt_in(tmp_path: Path) -> N
     argv = json.loads(argv_log.read_text(encoding="utf-8"))
     # Always sent explicitly, whichever value is in force.
     assert argv[argv.index("--sandbox") + 1] == "read-only"
+
+
+def test_callee_is_marked_as_an_executor_in_env_and_prompt(tmp_path: Path) -> None:
+    """A wrapped Codex is a leaf executor. The environment variable is the
+    machine-checkable signal and the preamble the model-visible one; the
+    caller's own environment is otherwise passed through untouched."""
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    argv_log = tmp_path / "argv.json"
+    env_log = tmp_path / "env.json"
+    write_fake_codex(bin_dir, stdout="ok\n", argv_log=argv_log, env_log=env_log)
+    prompt_file = write_prompt(tmp_path, "Objective: classify five strings")
+
+    result = run_codex_consult(
+        tmp_path,
+        ["--prompt-file", str(prompt_file)],
+        path_prefix=bin_dir,
+        env_overrides={"ORCHESTRA_TEST_MARKER": "kept"},
+    )
+
+    assert result.returncode == 0, result.stdout
+    child_env = json.loads(env_log.read_text(encoding="utf-8"))
+    assert child_env["ORCHESTRA_ROLE"] == "executor"
+    assert child_env["ORCHESTRA_TEST_MARKER"] == "kept"
+    prompt_sent = json.loads(argv_log.read_text(encoding="utf-8"))[-1]
+    assert prompt_sent.startswith("[orchestra-role: executor]\n")
+    assert prompt_sent.count("[orchestra-role: executor]") == 1
+    assert prompt_sent.endswith("Objective: classify five strings")
+    # The role travels in the prompt and the environment, never as a config
+    # override that would replace a user's own developer_instructions.
+    assert not any(
+        "developer_instructions" in arg
+        for arg in json.loads(argv_log.read_text(encoding="utf-8"))
+    )
+
+
+def test_explicit_main_role_may_delegate_and_child_is_still_an_executor(
+    tmp_path: Path,
+) -> None:
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    env_log = tmp_path / "env.json"
+    write_fake_codex(bin_dir, stdout="ok\n", env_log=env_log)
+    prompt_file = write_prompt(tmp_path, "Objective: anything")
+
+    result = run_codex_consult(
+        tmp_path,
+        ["--prompt-file", str(prompt_file)],
+        path_prefix=bin_dir,
+        env_overrides={"ORCHESTRA_ROLE": "main"},
+    )
+
+    assert result.returncode == 0, result.stdout
+    child_env = json.loads(env_log.read_text(encoding="utf-8"))
+    assert child_env["ORCHESTRA_ROLE"] == "executor"
+
+
+def test_executor_cannot_delegate_again(tmp_path: Path) -> None:
+    """An executor that called the wrapper would become a second orchestrator.
+    The call is refused before Codex runs and before any log file exists."""
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    argv_log = tmp_path / "argv.json"
+    write_fake_codex(bin_dir, stdout="ok\n", argv_log=argv_log)
+    prompt_file = write_prompt(tmp_path, "Objective: re-delegate this")
+
+    result = run_codex_consult(
+        tmp_path,
+        ["--prompt-file", str(prompt_file)],
+        path_prefix=bin_dir,
+        env_overrides={"ORCHESTRA_ROLE": "executor"},
+    )
+
+    assert result.returncode == 1
+    payload = json.loads(result.stdout)
+    assert payload["ok"] is False
+    assert "nested delegation" in payload["error"]
+    assert not argv_log.exists()
+    assert not (tmp_path / ".claude" / "logs" / "codex").exists()
+
+
+def test_unknown_role_value_is_refused(tmp_path: Path) -> None:
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    argv_log = tmp_path / "argv.json"
+    write_fake_codex(bin_dir, stdout="ok\n", argv_log=argv_log)
+    prompt_file = write_prompt(tmp_path, "Objective: anything")
+
+    result = run_codex_consult(
+        tmp_path,
+        ["--prompt-file", str(prompt_file)],
+        path_prefix=bin_dir,
+        env_overrides={"ORCHESTRA_ROLE": "exector"},
+    )
+
+    assert result.returncode == 1
+    payload = json.loads(result.stdout)
+    assert payload["ok"] is False
+    assert "not a known role" in payload["error"]
+    assert not argv_log.exists()
+
+
+def test_help_still_works_inside_an_executor(tmp_path: Path) -> None:
+    result = run_codex_consult(
+        tmp_path, ["--help"], env_overrides={"ORCHESTRA_ROLE": "executor"}
+    )
+
+    assert result.returncode == 0
+    assert "--prompt-file" in result.stdout

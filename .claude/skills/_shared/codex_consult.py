@@ -29,6 +29,15 @@ files Codex actually created, changed, or deleted — including files it
 committed. Together with ``caller`` and ``label`` that turns "some agent
 rewrote this" into an answerable question.
 
+Codex reached through this wrapper is always an *executor*, never the main
+agent: the child process gets ``ORCHESTRA_ROLE=executor`` and the prompt is
+prefixed with ``EXECUTOR_PREAMBLE`` (persisted with the rest of the prompt).
+That is how one Codex install serves both entry points -- an interactive
+``codex`` session the user started is the main agent, a wrapped call is a
+leaf. For the same reason the wrapper refuses to run when its own environment
+already says ``ORCHESTRA_ROLE=executor``: an executor does the work itself
+instead of delegating it again.
+
 Usage:
     python3 codex_consult.py --prompt-file prompt.txt --label design-review
     python3 codex_consult.py --label design-review   # reads prompt-design-review.md
@@ -40,7 +49,8 @@ Usage:
 Exit codes:
     0  codex exec exited 0 and its output was saved and verified
     1  bad args (both prompt sources, unreadable prompt file, bad --cwd,
-       unparseable --now)
+       unparseable --now), or a refused call: run from inside an executor
+       (``ORCHESTRA_ROLE=executor``) or with an unknown ``ORCHESTRA_ROLE``
     2  codex CLI not found on PATH
     3  codex exec exited non-zero or timed out, or a log file could not be
        written, created, or verified
@@ -88,6 +98,25 @@ CONFIG_KEY_DENYLIST = ("sandbox", "approval")
 # The repository now runs several agents in parallel, so the log stem is
 # *reserved* with O_EXCL and a numeric suffix is appended on collision.
 MAX_LOG_ATTEMPTS = 100
+
+# Role signalling (see the module docstring). The environment variable is the
+# machine-checkable signal -- it is what lets this wrapper refuse a nested call
+# -- and the preamble is the model-visible one, because a model cannot see its
+# environment without running a command.
+ROLE_ENV = "ORCHESTRA_ROLE"
+ROLE_EXECUTOR = "executor"
+ROLE_MAIN = "main"
+KNOWN_ROLES = ("", ROLE_MAIN, ROLE_EXECUTOR)
+EXECUTOR_PREAMBLE = (
+    "[orchestra-role: executor]\n"
+    "You were started by another agent through codex_consult.py, so you are a "
+    "Tier 2 executor, not the main agent. Do this task yourself: do not "
+    "delegate it (no spawn_agent or other collaboration tools, no "
+    "codex_consult.py or cli_consult.py calls) and do not run the "
+    "context-loader skill unless the task asks for it. Report in the requested "
+    "format; your caller verifies the result.\n"
+    "--- task ---\n"
+)
 
 EXIT_OK = 0
 EXIT_BAD_ARGS = 1
@@ -234,6 +263,34 @@ def validate_config_overrides(overrides: list[str]) -> str | None:
     return None
 
 
+def role_refusal(environ: dict[str, str]) -> str | None:
+    """Return why this wrapper must not run in *environ*, or None if it may.
+
+    An executor that calls the wrapper again would turn a leaf into a second
+    orchestrator, so that is refused before any log file or Codex process
+    exists. An unrecognised value is refused too: guessing a role is how a
+    typo would silently disable the guard.
+    """
+    role = environ.get(ROLE_ENV, "")
+    if role not in KNOWN_ROLES:
+        return (
+            f"{ROLE_ENV}={role!r} is not a known role "
+            f"(expected {ROLE_MAIN!r} or {ROLE_EXECUTOR!r}, or unset)"
+        )
+    if role == ROLE_EXECUTOR:
+        return (
+            f"refusing nested delegation: {ROLE_ENV}={ROLE_EXECUTOR} means this "
+            "process is already a delegated executor; do the task yourself and "
+            "report back to your caller"
+        )
+    return None
+
+
+def executor_env(environ: dict[str, str]) -> dict[str, str]:
+    """Child environment: the caller's, with the executor role stamped on."""
+    return {**environ, ROLE_ENV: ROLE_EXECUTOR}
+
+
 def _not_found_report(
     model: str, sandbox: str, write_access: bool, detail: str
 ) -> dict:
@@ -353,6 +410,12 @@ def main() -> int:  # noqa: C901 — single-function CLI entry point
         _emit({"ok": False, "error": f"--cwd is not a directory: {args.cwd}"})
         return EXIT_BAD_ARGS
 
+    # --- An executor never delegates again (see role_refusal) ---
+    refusal = role_refusal(dict(os.environ))
+    if refusal:
+        _emit({"ok": False, "error": refusal})
+        return EXIT_BAD_ARGS
+
     # --- Validate --config overrides ---
     config_error = validate_config_overrides(args.config)
     if config_error:
@@ -385,6 +448,9 @@ def main() -> int:  # noqa: C901 — single-function CLI entry point
             return EXIT_BAD_ARGS
     else:
         prompt = sys.stdin.read()
+    # The preamble is part of what is persisted, so the saved prompt is exactly
+    # the text Codex received.
+    prompt = EXECUTOR_PREAMBLE + prompt
 
     # An empty CODEX_MODEL is treated as unset: codex rejects an empty --model,
     # and an exported-but-blank variable is a common shell accident.
@@ -461,6 +527,7 @@ def main() -> int:  # noqa: C901 — single-function CLI entry point
             text=True,
             timeout=args.timeout,
             cwd=cwd,
+            env=executor_env(dict(os.environ)),
         )
         stdout_text = result.stdout
         stderr_text = result.stderr
