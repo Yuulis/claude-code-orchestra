@@ -468,8 +468,17 @@ def test_install_creates_real_runtime_directories(tmp_path: Path) -> None:
     # through a link, and nothing is duplicated into .agents/ or .codex/.
     for directory in (".claude", ".agents", ".codex"):
         assert not any(path.is_symlink() for path in (target / directory).iterdir())
-    for legacy in ("rules", "skills", "agents", "hooks", "docs"):
+    for legacy in ("rules", "agents", "hooks", "docs"):
         assert not (target / ".agents" / legacy).exists()
+    # The one link in the layout: Codex discovers project skills through
+    # .agents/skills/, whose entries resolve to the canonical .claude copies.
+    codex_skills = target / ".agents/skills"
+    assert codex_skills.is_dir() and not codex_skills.is_symlink()
+    assert (codex_skills / "context-loader").is_symlink()
+    for link in codex_skills.iterdir():
+        assert link.is_symlink()
+        assert link.resolve() == (target / ".claude/skills" / link.name).resolve()
+        assert (link / "SKILL.md").is_file()
     assert (target / ".claude/agents/general-purpose-opus.md").is_file()
     assert (target / ".claude/skills/context-loader/SKILL.md").is_file()
     assert not any(path.is_symlink() for path in (target / ".codex").iterdir())
@@ -505,6 +514,11 @@ def test_update_removes_legacy_agents_runtime_paths(tmp_path: Path) -> None:
     codex_skills = target / ".codex/skills"
     codex_skills.mkdir()
     (codex_skills / "legacy.md").write_text("legacy\n", encoding="utf-8")
+    # Pre-2.0 .agents/skills/ held real copies; today it is a template-owned
+    # directory of links, so a stale copy is replaced rather than kept.
+    stale_skill_copy = target / ".agents/skills/legacy-copy"
+    stale_skill_copy.mkdir()
+    (stale_skill_copy / "SKILL.md").write_text("stale\n", encoding="utf-8")
     legacy_project_files = {
         "docs/DESIGN.md": "# Legacy design\n",
         "logs/session.log": "legacy log\n",
@@ -530,6 +544,9 @@ def test_update_removes_legacy_agents_runtime_paths(tmp_path: Path) -> None:
     # path= instead).
     assert not legacy_runtime.exists()
     assert not codex_skills.exists()
+    assert not stale_skill_copy.exists()
+    assert (target / ".agents/skills/context-loader").is_symlink()
+    assert (target / ".agents/skills/context-loader/SKILL.md").is_file()
     assert (target / ".claude/rules").is_dir()
     assert not (target / ".claude/rules").is_symlink()
     assert {path.name for path in (target / ".codex").iterdir()} == {

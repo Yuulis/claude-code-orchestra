@@ -2,6 +2,12 @@
 """
 PostToolUse hook: Log cross-CLI subagent calls to a JSONL file.
 
+Wired for both runtimes: Claude Code (`.claude/settings.json`, through the
+post-bash-check.py dispatcher) and a Codex-started session
+(`.codex/config.toml` `[[hooks.PostToolUse]]`, which Codex runs only after the
+user trusts it). The two payloads differ only in `tool_response`; see
+`read_tool_response`.
+
 Triggers after Bash tool calls that invoke another CLI agent, either through
 a shared wrapper (`.claude/skills/_shared/codex_consult.py`, `cli_consult.py`)
 or as a bare `codex exec` command. Logs are stored in
@@ -171,6 +177,22 @@ def summarize_edits(result: dict | None) -> dict | None:
     }
 
 
+def read_tool_response(tool_response: object) -> tuple[str, int | None]:
+    """Return ``(output, exit_code)`` from either runtime's PostToolUse payload.
+
+    Claude Code sends a dict (``stdout`` / ``content``); a failing command never
+    reaches the hook, so a missing exit code there keeps meaning 0. Codex sends
+    the command's output as a plain string with no exit code at all, so the
+    exit code is reported as unknown (None) rather than invented.
+    """
+    if isinstance(tool_response, str):
+        return tool_response, None
+    if not isinstance(tool_response, dict):
+        return "", None
+    output = tool_response.get("stdout", "") or tool_response.get("content", "")
+    return output if isinstance(output, str) else "", tool_response.get("exit_code", 0)
+
+
 def log_entry(entry: dict) -> None:
     """Append entry to JSONL log file."""
     LOG_DIR.mkdir(parents=True, exist_ok=True)
@@ -194,11 +216,8 @@ def process_bash(data: dict) -> str | None:
 
     # Get command and output
     tool_input = data.get("tool_input", {})
-    tool_response = data.get("tool_response", {})
-
     command = tool_input.get("command", "")
-    output = tool_response.get("stdout", "") or tool_response.get("content", "")
-    exit_code = tool_response.get("exit_code", 0)
+    output, exit_code = read_tool_response(data.get("tool_response", {}))
 
     wrapper = wrapper_callee(command)
     if wrapper is None and "codex" not in command.lower():
@@ -219,7 +238,9 @@ def process_bash(data: dict) -> str | None:
         response = (result or {}).get("response_head") or output
         # The wrapper reports its own outcome; a missing result means its JSON
         # never reached stdout, which is itself a failure worth recording.
-        success = bool(result and result.get("ok")) and exit_code == 0
+        # An unknown exit code (Codex payloads) defers to the wrapper's own
+        # verdict; a known non-zero one still overrides it.
+        success = bool(result and result.get("ok")) and exit_code in (0, None)
         entry = {
             "timestamp": datetime.now(UTC).isoformat(),
             "tool": cli,
@@ -257,7 +278,9 @@ def process_bash(data: dict) -> str | None:
         "prompt": truncate_text(prompt),
         "response": truncate_text(output) if output else "",
         "response_file": None,
-        "success": exit_code == 0 and bool(output),
+        # Without an exit code (Codex payloads) success is unknown, not
+        # inferred from the mere presence of output.
+        "success": (exit_code == 0 and bool(output)) if exit_code is not None else None,
         "exit_code": exit_code,
     }
 

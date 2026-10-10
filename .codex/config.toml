@@ -30,19 +30,22 @@ approval_policy = "never"
 # Verification)") remains mandatory regardless of sandbox mode.
 sandbox_mode = "danger-full-access"
 
-# Enabled project skills. Deliberately short: most skills under
-# .claude/skills/ are Claude-lead orchestration whose steps invoke Claude
-# Code's Task tool with a `subagent_type` (feature, spike, team-execute,
-# troubleshoot, plan, tdd, simplify, catchup, research-lib, codex-system).
-# Codex cannot execute those steps, so enabling them here would hand it a
-# procedure that stalls partway through. The two below are runtime-neutral:
-# both are plain file reads and a guarded write through a shared script.
-# init and checkpointing are also runtime-neutral but belong to the main
-# agent's session bookkeeping, not to a delegated Tier 2 run.
-[[skills.config]]
-enabled = true
-path = ".claude/skills/context-loader"
+# Project skills are not configured here: Codex discovers them from
+# .agents/skills/<name>/SKILL.md, where each entry is a relative symlink to the
+# canonical .claude/skills/<name>. Only runtime-neutral skills are linked --
+# the Claude-lead workflows (feature, plan, tdd, team-execute, ...) call Claude
+# Code's Task tool and would stall partway through under Codex. A
+# [[skills.config]] entry cannot add a skill (it only toggles one that was
+# already discovered), which is why the old path= entries listed nothing.
 
-[[skills.config]]
-enabled = true
-path = ".claude/skills/design-tracker"
+# Codex-started sessions log cross-CLI wrapper calls to
+# .claude/logs/cli-tools.jsonl through the same hook Claude Code uses. Codex
+# runs a project hook only after the user trusts it (the TUI asks once per
+# hook version); untrusted, it is skipped and nothing else changes.
+[[hooks.PostToolUse]]
+matcher = "^Bash$"
+
+[[hooks.PostToolUse.hooks]]
+type = "command"
+command = 'python3 "$(git rev-parse --show-toplevel)/.claude/hooks/log-cli-tools.py"'
+timeout = 10

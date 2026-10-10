@@ -75,7 +75,6 @@ check "Tier IDs present in tiers.md" check_tier_ids
 # --------------------------------------------------------------------------
 # 3) Model coherence: CODEX_MODEL in settings.json == model in config.toml
 #    == fallback values in ${CODEX_MODEL:-...} across .claude/ and .codex/
-#    (gpt-5.5-mini is excluded from comparison)
 # --------------------------------------------------------------------------
 check_model_coherence() {
     local settings="${ROOT}/.claude/settings.json"
@@ -115,8 +114,7 @@ print(d.get('env', {}).get('CODEX_MODEL', ''))
     local fallbacks
     fallbacks=$(grep -rhoE --exclude-dir=logs '\$\{CODEX_MODEL:-[^}]+\}' "${ROOT}/.claude/" "${ROOT}/.codex/" 2>/dev/null \
         | sed 's/.*:-\(.*\)}/\1/' \
-        | sort -u \
-        | grep -v 'gpt-5.5-mini' || true)
+        | sort -u || true)
 
     while IFS= read -r fb; do
         [[ -z "${fb}" ]] && continue
@@ -156,7 +154,7 @@ check_safe_dirs() {
         return 1
     fi
     local dir
-    for dir in .claude/rules .claude/skills .claude/agents .claude/hooks; do
+    for dir in .claude/rules .claude/skills .claude/agents .claude/hooks .agents/skills; do
         if ! grep -q "\"${dir}\"" "${update}"; then
             echo "  ${dir} not found in SAFE_DIRS"
             return 1
@@ -339,8 +337,10 @@ check_native_boundaries() {
         fi
     done
 
-    # The layout is symlink-free: every contract file is a real file so the
-    # checkout survives filesystems and CI runners that do not honour symlinks.
+    # Every contract file is a real file so the checkout survives filesystems
+    # and CI runners that do not honour symlinks. The only links in the layout
+    # are the .agents/skills/ entries validated below, and losing them costs
+    # Codex its skill list, never a contract.
     local real_file
     for real_file in AGENTS.md .agents/AGENTS.md .codex/AGENTS.md \
         .claude/STATE.md .claude/rules/tiers.md .claude/docs/INDEX.md \
@@ -355,7 +355,7 @@ check_native_boundaries() {
     # schema directories.
     local forbidden_path
     for forbidden_path in \
-        .agents/rules .agents/skills .agents/agents .agents/hooks \
+        .agents/rules .agents/agents .agents/hooks \
         .agents/docs .agents/logs .agents/checkpoints .agents/STATE.md \
         .codex/skills; do
         if [[ -e "${ROOT}/${forbidden_path}" || -L "${ROOT}/${forbidden_path}" ]]; then
@@ -378,15 +378,43 @@ check_native_boundaries() {
             *) echo "  Unexpected .codex entry: ${native_entry}"; ok=false ;;
         esac
     done < <(find "${ROOT}/.codex" -mindepth 1 -maxdepth 1 -printf '%f\n' | sort)
-    # .agents/ is Antigravity's native directory and holds exactly one thing:
-    # the CLI-subagent contract it loads. Shared policy lives under .claude/
-    # and is referenced by path.
+    # .agents/ holds the CLI-subagent contract Antigravity loads, plus
+    # skills/, where Codex discovers project skills. Shared policy lives under
+    # .claude/ and is referenced by path.
     while IFS= read -r native_entry; do
-        if [[ "${native_entry}" != "AGENTS.md" ]]; then
-            echo "  Unexpected .agents entry: ${native_entry}"
+        case "${native_entry}" in
+            AGENTS.md|skills) ;;
+            *) echo "  Unexpected .agents entry: ${native_entry}"; ok=false ;;
+        esac
+    done < <(find "${ROOT}/.agents" -mindepth 1 -maxdepth 1 -printf '%f\n' | sort)
+    # .agents/skills/ is a real directory of relative links, one per
+    # runtime-neutral skill, each resolving to the canonical .claude/skills/
+    # copy -- never a copy, and never a Claude-lead workflow that calls the
+    # Task tool, which Codex cannot run.
+    local skills_dir="${ROOT}/.agents/skills"
+    if [[ ! -d "${skills_dir}" || -L "${skills_dir}" ]]; then
+        echo "  .agents/skills must be a real directory of skill links"
+        ok=false
+    else
+        local skill_link skill_name
+        for skill_link in "${skills_dir}"/* "${skills_dir}"/.[!.]*; do
+            [[ -e "${skill_link}" || -L "${skill_link}" ]] || continue
+            skill_name="$(basename "${skill_link}")"
+            if [[ ! -L "${skill_link}" ||
+                "$(readlink "${skill_link}")" != "../../.claude/skills/${skill_name}" ||
+                ! -f "${skill_link}/SKILL.md" ]]; then
+                echo "  .agents/skills/${skill_name} must link to ../../.claude/skills/${skill_name}"
+                ok=false
+            elif grep -Eq 'subagent_type|Task\(' "${skill_link}/SKILL.md"; then
+                echo "  .agents/skills/${skill_name} is a Claude-lead workflow (Task tool)"
+                ok=false
+            fi
+        done
+        if [[ ! -L "${skills_dir}/context-loader" ]]; then
+            echo "  .agents/skills/context-loader is missing"
             ok=false
         fi
-    done < <(find "${ROOT}/.agents" -mindepth 1 -maxdepth 1 -printf '%f\n' | sort)
+    fi
 
     if [[ ! -f "${ROOT}/.claude/settings.json" ]] ||
         ! grep -Fq '.claude/hooks/' "${ROOT}/.claude/settings.json" ||
@@ -395,10 +423,9 @@ check_native_boundaries() {
         ok=false
     fi
     if [[ ! -f "${ROOT}/.codex/config.toml" ]] ||
-        ! grep -Fq '.claude/skills/context-loader' "${ROOT}/.codex/config.toml" ||
-        ! grep -Fq '.claude/skills/design-tracker' "${ROOT}/.codex/config.toml" ||
+        ! grep -Fq '.claude/hooks/log-cli-tools.py' "${ROOT}/.codex/config.toml" ||
         grep -Fq '.codex/skills/' "${ROOT}/.codex/config.toml"; then
-        echo "  Codex config must reference canonical .claude skills directly"
+        echo "  Codex config must reference canonical .claude hooks directly"
         ok=false
     fi
 

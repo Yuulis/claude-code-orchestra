@@ -1,3 +1,4 @@
+import os
 import re
 from pathlib import Path
 
@@ -182,9 +183,11 @@ def test_main_agent_change_runbook_is_present_but_not_mandatory_read() -> None:
 def test_subagent_schema_directories_hold_no_runtime_content() -> None:
     """`.agents/` and `.codex/` are Antigravity's and Codex's native
     directories. Each holds that runtime's entry contract and nothing else:
-    shared policy lives under `.claude/` and is referenced by path."""
+    shared policy lives under `.claude/` and is referenced by path. The one
+    addition is `.agents/skills/`, where Codex discovers project skills; it
+    holds links to the canonical copies, never copies (see the next test)."""
     agents_entries = {path.name for path in (REPO_ROOT / ".agents").iterdir()}
-    assert agents_entries == {"AGENTS.md"}
+    assert agents_entries == {"AGENTS.md", "skills"}
 
     codex_entries = {path.name for path in (REPO_ROOT / ".codex").iterdir()}
     assert codex_entries == {"config.toml", "AGENTS.md"}
@@ -209,15 +212,36 @@ def test_subagent_schema_directories_hold_no_runtime_content() -> None:
         assert not any(path.is_symlink() for path in (REPO_ROOT / directory).iterdir())
 
 
+def test_codex_skill_links_resolve_to_runtime_neutral_canonical_skills() -> None:
+    """Codex lists project skills only from `.agents/skills/<name>/SKILL.md`
+    (`[[skills.config]]` can toggle a discovered skill but never add one). Each
+    entry is a relative link to `.claude/skills/<name>` -- so nothing is
+    duplicated -- and only skills Codex can run are linked: a Claude-lead
+    workflow calls the Task tool and would stall partway through."""
+    skills_dir = REPO_ROOT / ".agents" / "skills"
+    assert skills_dir.is_dir() and not skills_dir.is_symlink()
+    names = {path.name for path in skills_dir.iterdir()}
+    assert "context-loader" in names
+    for name in names:
+        link = skills_dir / name
+        assert link.is_symlink(), f"{name} is a copy, not a link"
+        assert os.readlink(link) == f"../../.claude/skills/{name}"
+        skill_md = (link / "SKILL.md").read_text(encoding="utf-8")
+        assert "subagent_type" not in skill_md, f"{name} is a Claude-lead workflow"
+        assert "Task(" not in skill_md, f"{name} is a Claude-lead workflow"
+
+
 def test_native_settings_reference_canonical_claude_paths_directly() -> None:
     claude_settings = read_repo_file(".claude/settings.json")
     codex_config = read_repo_file(".codex/config.toml")
 
     assert ".claude/hooks/" in claude_settings
     assert ".agents/hooks/" not in claude_settings
-    assert ".claude/skills/context-loader" in codex_config
-    assert ".claude/skills/design-tracker" in codex_config
+    # A Codex-started session logs wrapper calls through the canonical hook.
+    assert ".claude/hooks/log-cli-tools.py" in codex_config
     assert ".codex/skills/" not in codex_config
+    # `[[skills.config]] path=` cannot enable a skill; it listed nothing.
+    assert not re.search(r"(?m)^\[\[skills\.config\]\]", codex_config)
 
 
 def test_shared_runtime_docs_use_canonical_claude_paths() -> None:

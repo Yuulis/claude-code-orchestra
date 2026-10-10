@@ -322,3 +322,113 @@ def test_malformed_stdin_does_not_crash(tmp_path: Path) -> None:
     garbage_result = run_dispatcher(hooks_dir, "this is not json at all")
     assert garbage_result.returncode == 0, garbage_result.stderr
     assert garbage_result.stdout.strip() == ""
+
+
+def codex_hook_input(command: str, output: str) -> dict:
+    """A PostToolUse payload as Codex sends it (captured from codex-cli 0.162):
+    the same keys as Claude Code's, except that ``tool_response`` is the
+    command's output as a plain string and no exit code is reported."""
+    return {
+        "hook_event_name": "PostToolUse",
+        "model": "gpt-6.1-sol",
+        "tool_name": "Bash",
+        "tool_input": {"command": command},
+        "tool_response": output,
+    }
+
+
+def run_log_hook(hooks_dir: Path, payload: dict) -> subprocess.CompletedProcess[str]:
+    """Run log-cli-tools.py directly, the way `.codex/config.toml` wires it."""
+    return subprocess.run(
+        ["python3", str(hooks_dir / "log-cli-tools.py")],
+        input=json.dumps(payload),
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+
+def test_codex_payload_wrapper_call_is_logged_with_the_wrapper_verdict(
+    tmp_path: Path,
+) -> None:
+    hooks_dir = build_isolated_hooks_dir(tmp_path)
+    log_file = hooks_dir.parent / "logs" / "cli-tools.jsonl"
+    prompt_file = tmp_path / "prompt.txt"
+    prompt_file.write_text("Objective: classify five strings", encoding="utf-8")
+    wrapper_result = json.dumps(
+        {
+            "ok": True,
+            "exit_code": 0,
+            "model": "gpt-6-luna",
+            "caller": "codex-main",
+            "label": "bulk",
+            "sandbox": "read-only",
+            "response_head": "a: noun",
+            "error": None,
+        }
+    )
+    payload = codex_hook_input(
+        command=(
+            "python3 .claude/skills/_shared/codex_consult.py --model gpt-6-luna "
+            f"--sandbox read-only --label bulk --prompt-file {prompt_file}"
+        ),
+        output=wrapper_result + "\n",
+    )
+
+    result = run_log_hook(hooks_dir, payload)
+
+    assert result.returncode == 0, result.stderr
+    entries = [json.loads(line) for line in log_file.read_text().splitlines()]
+    assert len(entries) == 1
+    assert entries[0]["model"] == "gpt-6-luna"
+    assert entries[0]["caller"] == "codex-main"
+    assert entries[0]["access"] == "read-only"
+    assert entries[0]["exit_code"] is None
+    assert entries[0]["success"] is True
+
+
+def test_codex_payload_failed_wrapper_call_is_not_reported_as_success(
+    tmp_path: Path,
+) -> None:
+    hooks_dir = build_isolated_hooks_dir(tmp_path)
+    log_file = hooks_dir.parent / "logs" / "cli-tools.jsonl"
+    payload = codex_hook_input(
+        command=(
+            "python3 .claude/skills/_shared/codex_consult.py --prompt-stdin "
+            "--label bulk"
+        ),
+        output=json.dumps({"ok": False, "exit_code": 3, "error": "timed out"}),
+    )
+
+    result = run_log_hook(hooks_dir, payload)
+
+    assert result.returncode == 0, result.stderr
+    entries = [json.loads(line) for line in log_file.read_text().splitlines()]
+    assert entries[0]["success"] is False
+
+
+def test_codex_payload_bare_codex_exec_has_unknown_success(tmp_path: Path) -> None:
+    hooks_dir = build_isolated_hooks_dir(tmp_path)
+    log_file = hooks_dir.parent / "logs" / "cli-tools.jsonl"
+    payload = codex_hook_input(
+        command='codex exec "Summarize the plan"', output="some answer\n"
+    )
+
+    result = run_log_hook(hooks_dir, payload)
+
+    assert result.returncode == 0, result.stderr
+    entries = [json.loads(line) for line in log_file.read_text().splitlines()]
+    assert entries[0]["prompt"] == "Summarize the plan"
+    assert entries[0]["exit_code"] is None
+    assert entries[0]["success"] is None
+
+
+def test_codex_payload_for_an_unrelated_command_logs_nothing(tmp_path: Path) -> None:
+    hooks_dir = build_isolated_hooks_dir(tmp_path)
+    log_file = hooks_dir.parent / "logs" / "cli-tools.jsonl"
+
+    result = run_log_hook(hooks_dir, codex_hook_input("ls -la", "total 0\n"))
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == ""
+    assert not log_file.exists()

@@ -31,6 +31,7 @@ SAFE_DIRS=(
     ".claude/skills"
     ".claude/agents"
     ".claude/hooks"
+    ".agents/skills"
 )
 # Files that no SAFE_DIR already covers. `.claude/rules/`, `.claude/skills/`,
 # above are replaced wholesale, so their contents must not be repeated here.
@@ -61,7 +62,6 @@ DEPRECATED_PATHS=(
     ".gemini"
     ".agents/workflows"
     ".agents/rules"
-    ".agents/skills"
     ".agents/agents"
     ".agents/hooks"
     ".codex/skills"

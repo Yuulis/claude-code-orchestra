@@ -9,6 +9,7 @@ TEMPLATE_OWNED_DIRS=(
     ".claude/skills"
     ".claude/agents"
     ".claude/hooks"
+    ".agents/skills"
 )
 # Runtime content that pre-2.0 installations kept under .agents/. The main
 # agent runtime is now physically owned by .claude/, so these paths are stale.
@@ -17,7 +18,6 @@ TEMPLATE_OWNED_DIRS=(
 LEGACY_RUNTIME_PATHS=(
     ".agents/workflows"
     ".agents/rules"
-    ".agents/skills"
     ".agents/agents"
     ".agents/hooks"
     ".agents/docs"
