@@ -1,7 +1,7 @@
 ---
 name: spike
 description: |
-  Time-boxed technical investigation/feasibility study with Codex-first multi-agent collaboration (Codex + Opus subagents + Agent Teams).
+  Time-boxed technical investigation/feasibility study with Codex-first multi-agent collaboration (Codex + Opus 4.6 + Agent Teams).
   Codex CLI is consulted in EVERY phase for question framing, feasibility analysis, and final evaluation.
   Phase 1: Frame the investigation question & constraints (Claude user interaction + Codex question decomposition).
   Phase 2: Parallel investigation (Agent Teams: Researcher [Opus external research] + Feasibility Analyst [Codex deep analysis] + optional prototype).
@@ -47,7 +47,7 @@ This skill handles time-boxed feasibility studies and technical investigations. 
 - Simple library lookup → direct research (Opus subagent)
 - Code review → `/team-execute --review-only`
 
-Full skill routing: CLAUDE.md §3 Routing Policy.
+Full skill routing: `AGENTS.md` section "Routing Policy".
 
 ### Investigation Modes
 
@@ -65,7 +65,7 @@ Phase 1: FRAME (Claude Lead + Codex Question Decomposition)
     |
 Phase 2: INVESTIGATE (Agent Teams -- Parallel, Codex-driven)
   Researcher (Opus) <-> Feasibility Analyst (Codex) communicate bidirectionally
-  Optional: Codex prototype (workspace-write) for hands-on validation
+  Optional: Codex prototype (danger-full-access) for hands-on validation
     |
 Phase 3: SYNTHESIZE (Codex Evaluation + Claude Lead + User)
   Codex evaluates all evidence against success criteria,
@@ -80,6 +80,16 @@ Phase 3: SYNTHESIZE (Codex Evaluation + Claude Lead + User)
 
 > A well-framed question is half the answer. Phase 1 ensures we investigate the right thing within the right constraints.
 
+### Step 0: Resolve Workspace
+
+Resolve this spike's deterministic workspace once. The title becomes file and directory names, so give it a short English descriptor of the question -- not the user's raw wording, which the Language Protocol keeps out of paths:
+
+```bash
+python3 .claude/skills/_shared/workspace.py --skill spike --title "{short English title}" --create
+```
+
+This prints one JSON object: `slug`, `team_name`, and `paths` (`brief`, `research`, `feasibility`, `report`, `prototype_dir`, `team_dir`). Exit 0 resolved/created; 1 bad args; 2 applies only to `--verify` (used later in Phase 3); 3 the workspace directories could not be created. Use `{slug}`, `{team_name}`, and every `paths.*` value from this JSON verbatim for the rest of this skill -- do not re-derive them by hand in a later phase.
+
 ### Step 1: Gather Spike Parameters from User
 
 Ask the user to provide:
@@ -92,10 +102,9 @@ Ask the user to provide:
 
 ### Step 2: Codex Question Decomposition (MANDATORY)
 
-Consult Codex to decompose the spike question into a structured investigation plan:
+Consult Codex to decompose the spike question into a structured investigation plan. Write the prompt to a file, then invoke the wrapper:
 
-```bash
-codex exec --model "${CODEX_MODEL:-gpt-5.6-sol}" -c model_reasoning_effort="${CODEX_PLAN_EFFORT:-high}" --sandbox read-only "
+```text
 Objective: Decompose this spike question into a structured investigation plan.
 Context:
 - Spike question: {question/hypothesis from user}
@@ -116,45 +125,33 @@ Output format:
 ## Investigation Approach
 ## Critical Path (which finding would short-circuit the spike)
 ## Risk of Inconclusive Result
-" 2>/dev/null
 ```
+
+```bash
+python3 .claude/skills/_shared/codex_consult.py --prompt-file .claude/logs/codex/prompt-spike-decomposition.md --label spike-decomposition
+```
+
+`.claude/skills/_shared/codex_consult.py` exits 0 when Codex answered normally, 2 if the Codex CLI is not installed, 3 if Codex failed or timed out -- check the JSON `ok` field and read `response_file` for the answer (`error`/`stderr_file` explain a failure). Every later Codex consultation in this skill follows this same write-prompt-then-invoke pattern without repeating these exit codes.
 
 ### Step 3: Create Spike Brief
 
-Combine user parameters + Codex decomposition into a "Spike Brief":
+Combine user parameters + Codex decomposition into a Spike Brief following the template contract in `references/brief-template.md`. Write it to `{paths.brief}` (from Step 0) -- not only into this conversation -- then validate it:
 
-```markdown
-## Spike Brief: {topic}
-
-### Question
-{The core question or hypothesis in one sentence}
-
-### Parameters
-- Time budget: {duration}
-- Investigation mode: {RESEARCH-ONLY / PROTOTYPE}
-- Started: {timestamp}
-- Deadline: {timestamp}
-
-### Success Criteria
-- GO if: {conditions that make this a GO}
-- NO-GO if: {conditions that make this a NO-GO}
-- INCONCLUSIVE if: {what would leave us uncertain}
-
-### Sub-questions (from Codex decomposition)
-1. {Sub-question A}: Evidence needed: {description}
-2. {Sub-question B}: Evidence needed: {description}
-3. {Sub-question C}: Evidence needed: {description}
-
-### Critical Path
-{Which sub-question is most decisive -- investigate this first}
-
-### Investigation Plan
-- Researcher (Opus): {what to research externally}
-- Feasibility Analyst (Codex): {what to analyze technically}
-- Prototype (if applicable): {what to build and test}
+```bash
+python3 .claude/skills/_shared/validate_doc.py --contract spike-brief --file {paths.brief}
 ```
 
-This brief is passed to Phase 2 teammates as shared context.
+`references/brief-template.md` is the single source of truth for the required
+sections; the `spike-brief` contract is pinned to that template by
+`tests/test_validate_doc.py`. Exit 0 means every required section is present;
+exit 2 means one is missing and the JSON `sections_missing` names it; exit 1
+means the file does not exist. Fill the gap before spawning the team.
+
+The brief carries the success criteria and sub-questions that Phase 3 scores the
+evidence against, and `{paths.brief}` is in `REQUIRED_KEYS`, so the Phase 3
+`--verify` gate fails without it. A brief that lives only in the Lead's context
+does not survive compaction or a session break -- which is why it is a file
+here, and why both teammates are pointed at the path instead of a pasted copy.
 
 ---
 
@@ -168,17 +165,16 @@ This brief is passed to Phase 2 teammates as shared context.
 ### Team Setup
 
 ```
-Create an agent team for spike investigation: {topic}
+Create an agent team named `{team_name}` for spike investigation: {slug}
 
 Spawn two teammates:
 
 1. **Researcher** -- Uses WebSearch/WebFetch for external research (Opus 1M context)
-   Prompt: "You are the Researcher for spike: {topic}.
+   Prompt: "You are the Researcher for spike: {slug}.
 
    Your job: Gather external evidence to answer the spike's sub-questions.
 
-   Spike Brief:
-   {spike brief from Phase 1}
+   Spike Brief: read `{paths.brief}` (written and validated in Phase 1 Step 3).
 
    Tasks:
    1. Research each sub-question from the Spike Brief:
@@ -198,7 +194,7 @@ Spawn two teammates:
 
    How to research:
    - Use WebSearch for comprehensive research:
-     WebSearch: '{topic} {sub-question keywords} best practices limitations benchmarks'
+     WebSearch: '{spike question} {sub-question keywords} best practices limitations benchmarks'
    - Use WebFetch for targeted documentation lookup:
      WebFetch: '{official docs URL}' with prompt to extract specific information
    - For library evaluation, check:
@@ -207,7 +203,7 @@ Spawn two teammates:
      - Benchmarks: performance characteristics
      - Migration guides: complexity of adoption
 
-   Save all findings to .claude/docs/research/spike-{topic}-research.md
+   Save all findings to `{paths.research}` (from Phase 1 Step 0).
 
    Communicate with Feasibility Analyst teammate:
    - Share findings that affect technical feasibility
@@ -216,7 +212,7 @@ Spawn two teammates:
 
    IMPORTANT -- Work Log:
    When ALL your tasks are complete, write your work log to
-   .claude/logs/agent-teams/{team-name}/researcher.md per the shared format:
+   {paths.team_dir}researcher.md per the shared format:
    .claude/skills/_shared/work-log-format.md
    Role-specific sections (between Tasks Completed and Communication):
    ## Sources Consulted
@@ -228,13 +224,12 @@ Spawn two teammates:
    "
 
 2. **Feasibility Analyst** -- Uses Codex CLI as PRIMARY analysis engine for technical feasibility
-   Prompt: "You are the Feasibility Analyst for spike: {topic}.
+   Prompt: "You are the Feasibility Analyst for spike: {slug}.
 
    Your job: Evaluate the technical feasibility of the spike question through deep analysis.
    Codex CLI is your PRIMARY tool for reasoning about technical trade-offs and feasibility.
 
-   Spike Brief:
-   {spike brief from Phase 1}
+   Spike Brief: read `{paths.brief}` (written and validated in Phase 1 Step 3).
 
    Tasks:
    1. Analyze technical feasibility of each sub-question
@@ -247,10 +242,13 @@ Spawn two teammates:
 
    You MUST consult Codex for EACH of the following analysis tasks.
    Do NOT skip Codex consultation -- it is the primary reasoning engine for this role.
+   Each consultation below follows the same shape: write the prompt to a file,
+   then run `python3 .claude/skills/_shared/codex_consult.py --prompt-file <path> --label <label>`
+   and read the JSON `response_file`.
 
    ### 1. Technical Feasibility Assessment
-   For each sub-question, consult Codex:
-   codex exec --model "${CODEX_MODEL:-gpt-5.6-sol}" -c model_reasoning_effort="${CODEX_PLAN_EFFORT:-high}" --sandbox read-only '
+   For each sub-question, write the prompt below to a file, then invoke the wrapper:
+
    Objective: Assess technical feasibility of {sub-question}.
    Context:
    - Spike question: {main question}
@@ -267,11 +265,12 @@ Spawn two teammates:
    ## Hard Blockers (if any)
    ## Soft Challenges
    ## Effort Estimate (if feasible)
-   ' 2>/dev/null
+
+   python3 .claude/skills/_shared/codex_consult.py --prompt-file .claude/logs/codex/prompt-spike-feasibility.md --label spike-feasibility
 
    ### 2. Architecture Compatibility Analysis
-   Consult Codex to evaluate fit with existing architecture:
-   codex exec --model "${CODEX_MODEL:-gpt-5.6-sol}" -c model_reasoning_effort="${CODEX_PLAN_EFFORT:-high}" --sandbox read-only '
+   Write the prompt below to a file, then consult Codex to evaluate fit with existing architecture:
+
    Objective: Evaluate how {proposed approach} fits with the existing architecture.
    Context:
    - Proposed approach: {description}
@@ -286,11 +285,12 @@ Spawn two teammates:
    ## Alignment with Existing Patterns
    ## Required Architectural Changes
    ## Migration Complexity (LOW / MEDIUM / HIGH)
-   ' 2>/dev/null
+
+   python3 .claude/skills/_shared/codex_consult.py --prompt-file .claude/logs/codex/prompt-spike-architecture.md --label spike-architecture
 
    ### 3. Risk and Trade-off Analysis
-   Consult Codex to evaluate risks:
-   codex exec --model "${CODEX_MODEL:-gpt-5.6-sol}" -c model_reasoning_effort="${CODEX_PLAN_EFFORT:-high}" --sandbox read-only '
+   Write the prompt below to a file, then consult Codex to evaluate risks:
+
    Objective: Identify and evaluate risks of adopting {proposed approach}.
    Context:
    - Proposed approach: {description}
@@ -306,11 +306,12 @@ Spawn two teammates:
    ## Risk Matrix (likelihood x impact)
    ## Comparison with Alternatives
    ## Mitigation Strategies
-   ' 2>/dev/null
+
+   python3 .claude/skills/_shared/codex_consult.py --prompt-file .claude/logs/codex/prompt-spike-risk.md --label spike-risk
 
    ### 4. Prototype Validation (PROTOTYPE mode only)
-   If the investigation mode is PROTOTYPE, build a minimal throwaway prototype:
-   codex exec --model "${CODEX_MODEL:-gpt-5.6-sol}" -c model_reasoning_effort="${CODEX_IMPL_EFFORT:-medium}" --sandbox workspace-write '
+   If the investigation mode is PROTOTYPE, write the prompt below to a file, then have Codex build a minimal throwaway prototype. This is the one call that keeps `--sandbox danger-full-access`; every other consultation in this skill uses the default `read-only`:
+
    Objective: Build a minimal prototype to validate {specific technical question}.
    Context:
    - Question to validate: {what the prototype tests}
@@ -320,15 +321,39 @@ Spawn two teammates:
    - Keep it under 100 lines
    - Test ONE specific thing
    - Document what was validated and the result
-   - Place prototype in .claude/spikes/{topic}/ directory
+   - Place prototype in {paths.prototype_dir} (from Phase 1 Step 0)
    Output format:
    ## What Was Tested
    ## Prototype Code (with inline comments)
    ## Result (VALIDATED / INVALIDATED / INCONCLUSIVE)
    ## Evidence
-   ' 2>/dev/null
 
-   Save analysis to .claude/docs/research/spike-{topic}-feasibility.md
+   python3 .claude/skills/_shared/codex_consult.py --prompt-file .claude/logs/codex/prompt-spike-prototype.md --label spike-prototype --sandbox danger-full-access
+
+   ### 5. Post-Prototype Acceptance Checks (MANDATORY after the call above)
+   `ok: true` from the wrapper means `codex exec` exited 0 -- nothing more. Per
+   the Guardrails in root `AGENTS.md`, YOU run the acceptance
+   checks; a write-enabled delegated CLI is never trusted on its self-report.
+   Run both, in this order:
+
+   python3 .claude/skills/_shared/workspace.py --skill spike --slug {slug} --verify --require prototype_dir
+   python3 .claude/skills/_shared/verify_delegation.py --base HEAD --forbid-outside {paths.prototype_dir}
+
+   The first exits 2 when `{paths.prototype_dir}` holds no non-trivial file --
+   i.e. Codex reported success and wrote nothing. Read `verify.missing` /
+   `verify.empty` to see which key failed.
+   The second collects the diff evidence: `deletions`, `placeholders`,
+   `weakened_tests`, `out_of_scope_files`. Its `verdict` is always
+   `needs-review` -- it reports evidence and never accepts on your behalf. Read
+   the payload yourself: any path in `out_of_scope_files` means a throwaway
+   prototype wrote outside its directory, and must be reverted before the
+   evidence is used. Stub or placeholder code invalidates a VALIDATED result.
+
+   Record the outcome of both checks in your work log under
+   `## Prototype Results`, and treat the prototype as INCONCLUSIVE if either
+   check failed.
+
+   Save analysis to `{paths.feasibility}` (from Phase 1 Step 0).
 
    Communicate with Researcher teammate:
    - Share technical constraints that need external validation
@@ -337,9 +362,13 @@ Spawn two teammates:
 
    IMPORTANT -- Work Log:
    When ALL your tasks are complete, write your work log to
-   .claude/logs/agent-teams/{team-name}/feasibility-analyst.md per the shared
+   {paths.team_dir}feasibility-analyst.md per the shared
    format: .claude/skills/_shared/work-log-format.md
-   Role-specific sections replacing Tasks Completed for this role:
+   Keep all five core sections, `## Tasks Completed` included -- the Lead
+   validates this log with `validate_doc.py --contract work-log`, which
+   rejects a log that drops it.
+   Role-specific sections (between Tasks Completed and Communication with
+   Teammates) for this role:
    ## Sub-question Assessments
    - {sub-question}: {FEASIBLE / NOT_FEASIBLE / UNKNOWN} -- {key reasoning}
    ## Codex Consultations
@@ -351,6 +380,8 @@ Spawn two teammates:
    ## Prototype Results (if applicable)
    - Tested: {what}
    - Result: {VALIDATED / INVALIDATED / INCONCLUSIVE}
+   - Acceptance checks: workspace --require prototype_dir: {exit code} /
+     verify_delegation out_of_scope_files: {list or none}
    "
 
 Wait for both teammates to complete their tasks.
@@ -381,21 +412,36 @@ Without Agent Teams, this discovery loop would require multiple sequential subag
 
 ### Step 1: Gather Investigation Results
 
-Read outputs from Phase 2:
-- `.claude/docs/research/spike-{topic}-research.md` -- Researcher findings
-- `.claude/docs/research/spike-{topic}-feasibility.md` -- Feasibility analysis (Codex-driven)
-- `.claude/spikes/{topic}/` -- Prototype code and results (if PROTOTYPE mode)
+Confirm both teammates actually finished **before** reading anything -- "wait for
+both teammates to complete" is a self-report, and a half-finished investigation
+read as complete produces a confident verdict on partial evidence:
+
+```bash
+python3 .claude/skills/_shared/validate_doc.py --contract work-log \
+  --dir {paths.team_dir} --expect-files 2
+```
+
+Exit 0 means both logs exist and satisfy the work-log contract. Exit 2 means
+either a log is missing (`error: "expected 2 files, found N"` -- without
+`--expect-files` an empty directory would pass) or a log is malformed
+(`files_failed > 0`, with `sections_missing` per file). Resolve it before
+continuing.
+
+Then read outputs from Phase 2 (paths resolved in Phase 1 Step 0):
+- `{paths.brief}` -- Spike Brief: the success criteria to score against
+- `{paths.research}` -- Researcher findings
+- `{paths.feasibility}` -- Feasibility analysis (Codex-driven)
+- `{paths.prototype_dir}` -- Prototype code and results (if PROTOTYPE mode)
 
 ### Step 2: Codex Final Evaluation (MANDATORY)
 
-Consult Codex to synthesize all findings into a go/no-go recommendation:
+Consult Codex to synthesize all findings into a go/no-go recommendation. Write the prompt to a file, then invoke the wrapper:
 
-```bash
-codex exec --model "${CODEX_MODEL:-gpt-5.6-sol}" -c model_reasoning_effort="${CODEX_PLAN_EFFORT:-high}" --sandbox read-only "
+```text
 Objective: Synthesize spike investigation findings and produce a go/no-go recommendation.
 Context:
 - Spike question: {original question}
-- Success criteria: {from Spike Brief}
+- Success criteria: {quoted verbatim from the `Success Criteria` section of {paths.brief}}
 - Researcher findings: {summary of key findings}
 - Feasibility assessment: {summary of Codex feasibility analysis per sub-question}
 - Risks identified: {summary of risks}
@@ -406,8 +452,8 @@ Constraints:
 - If GO, specify key constraints and risks to carry forward
 - If NO-GO, explain the decisive blocker and suggest alternatives
 - If INCONCLUSIVE, specify what additional investigation is needed
-Output format:
-## Evidence Summary (per success criterion)
+Output format (headings chosen to drop straight into `references/report-template.md`):
+## Success Criteria Evaluation (per criterion, quoting the criterion verbatim)
 ## Verdict: GO / NO-GO / INCONCLUSIVE
 ## Confidence Level: HIGH / MEDIUM / LOW
 ## Decisive Factor
@@ -415,87 +461,44 @@ Output format:
 ## If GO: Recommended Next Skill (/feature — existing or greenfield mode)
 ## If NO-GO: Decisive Blocker and Alternatives
 ## If INCONCLUSIVE: What Additional Investigation Is Needed
-" 2>/dev/null
+```
+
+```bash
+python3 .claude/skills/_shared/codex_consult.py --prompt-file .claude/logs/codex/prompt-spike-evaluation.md --label spike-evaluation
 ```
 
 ### Step 3: Save Research Report
 
-Save the complete spike report to `.claude/docs/research/spike-{topic}.md`:
+Save the complete spike report to `{paths.report}` (from Phase 1 Step 0) following the template contract in `references/report-template.md`. Then validate it and gate Phase 3 before presenting to the user:
 
-```markdown
-# Spike Report: {topic}
-
-## Question
-{The original spike question}
-
-## Verdict: {GO / NO-GO / INCONCLUSIVE}
-**Confidence**: {HIGH / MEDIUM / LOW}
-**Decisive factor**: {one-sentence summary of why}
-
-## Investigation Parameters
-- Time budget: {duration}
-- Mode: {RESEARCH-ONLY / PROTOTYPE}
-- Date: {date}
-
-## Success Criteria Evaluation
-| Criterion | Evidence | Met? |
-|-----------|----------|------|
-| {criterion 1} | {evidence summary} | {YES / NO / PARTIAL} |
-| {criterion 2} | {evidence summary} | {YES / NO / PARTIAL} |
-
-## Sub-question Findings
-### {Sub-question 1}
-- Finding: {description}
-- Evidence: {sources and data}
-- Assessment: {FEASIBLE / NOT_FEASIBLE / UNKNOWN}
-
-### {Sub-question 2}
-- Finding: {description}
-- Evidence: {sources and data}
-- Assessment: {FEASIBLE / NOT_FEASIBLE / UNKNOWN}
-
-## Risks
-| Risk | Likelihood | Impact | Mitigation |
-|------|-----------|--------|------------|
-| {risk 1} | {H/M/L} | {H/M/L} | {strategy} |
-
-## Prototype Results (if applicable)
-- Tested: {what was tested}
-- Result: {VALIDATED / INVALIDATED / INCONCLUSIVE}
-- Evidence: {observations}
-
-## Architecture Compatibility
-- Assessment: {COMPATIBLE / REQUIRES_CHANGES / INCOMPATIBLE}
-- Required changes: {list, if any}
-
-## Alternatives Considered
-| Alternative | Pros | Cons | Verdict |
-|-------------|------|------|---------|
-| {alt 1} | {pros} | {cons} | {recommendation} |
-
-## Recommendation
-{GO / NO-GO / INCONCLUSIVE with detailed reasoning}
-
-### If GO
-- Next step: {/feature — existing or greenfield mode}
-- Key constraints to carry forward: {list}
-- Risks to monitor: {list}
-
-### If NO-GO
-- Decisive blocker: {description}
-- Suggested alternatives: {list}
-
-### If INCONCLUSIVE
-- Missing evidence: {what we still need}
-- Suggested follow-up: {description}
+```bash
+python3 .claude/skills/_shared/validate_doc.py --contract spike-report --file {paths.report}
+python3 .claude/skills/_shared/workspace.py --skill spike --slug {slug} --verify
+# PROTOTYPE mode only -- make the prototype itself a required artifact:
+python3 .claude/skills/_shared/workspace.py --skill spike --slug {slug} --verify --require prototype_dir
 ```
+
+`references/report-template.md` is the single source of truth for the report's
+required sections; the `spike-report` contract is pinned to that template by
+`tests/test_validate_doc.py`. Do not work from a section list retyped here.
+Exit 0 means every required section is present; exit 2 means one is missing and
+the JSON `sections_missing` names it -- the usual casualty is the section that
+ties the verdict back to the Phase 1 success criteria, and a report without it
+has an unsupported verdict.
+
+The `--verify` call confirms `brief`, `research`, `feasibility`, and `report`
+all exist and are non-trivial; exit 2 means one is missing or empty (read
+`verify.missing` / `verify.empty`). In PROTOTYPE mode add
+`--require prototype_dir`: `prototype_dir` is not required by default, so
+without it a PROTOTYPE spike passes this gate with no prototype on disk. An
+empty directory does not satisfy it. Resolve any gap before Step 4.
 
 ### Step 4: Present to User
 
 Present the spike result to the user:
 
 ```markdown
-## Spike Result: {topic}
+## Spike Result: {slug}
 
 ### Verdict: {GO / NO-GO / INCONCLUSIVE}
 **Confidence**: {HIGH / MEDIUM / LOW}
@@ -539,7 +542,7 @@ Present the spike result to the user:
 2. Consider a follow-up spike with narrower scope
 
 ---
-Full report saved to: `.claude/docs/research/spike-{topic}.md`
+Full report saved to: `{paths.report}`
 
 Shall we proceed with the recommended next step?
 ```
@@ -548,12 +551,15 @@ Shall we proceed with the recommended next step?
 
 ## Output Files
 
+Paths resolved once in Phase 1 Step 0 (`.claude/skills/_shared/workspace.py --skill spike`):
+
 | File | Author | Purpose |
 |------|--------|---------|
-| `.claude/docs/research/spike-{topic}-research.md` | Researcher | External research findings |
-| `.claude/docs/research/spike-{topic}-feasibility.md` | Feasibility Analyst | Technical feasibility analysis (Codex-driven) |
-| `.claude/docs/research/spike-{topic}.md` | Lead | Final spike report (decision document) |
-| `.claude/spikes/{topic}/` | Feasibility Analyst | Prototype code (PROTOTYPE mode only) |
+| `{paths.brief}` | Lead | Spike Brief: success criteria, sub-questions, time budget (Phase 1) |
+| `{paths.research}` | Researcher | External research findings |
+| `{paths.feasibility}` | Feasibility Analyst | Technical feasibility analysis (Codex-driven) |
+| `{paths.report}` | Lead | Final spike report (decision document) |
+| `{paths.prototype_dir}` | Feasibility Analyst | Prototype code (PROTOTYPE mode only) |
 
 ---
 
@@ -564,7 +570,7 @@ Shall we proceed with the recommended next step?
 - **Phase 1 is critical**: A well-decomposed question makes Phase 2 much more efficient. Invest time in framing the right sub-questions with Codex
 - **Phase 2**: Agent Teams bidirectional communication allows Researcher (Opus) and Feasibility Analyst (Codex-driven) to converge on evidence-based assessment
 - **Phase 3**: Codex synthesizes all findings into a decision. After a GO decision, proceed to `/feature` -- do NOT start implementation within the spike
-- **PROTOTYPE mode**: Prototype code is throwaway. It lives in `.claude/spikes/` and is NOT production code. Its only purpose is to generate evidence for the decision
+- **PROTOTYPE mode**: Prototype code is throwaway. It lives in `{paths.prototype_dir}` and is NOT production code. Its only purpose is to generate evidence for the decision -- and because that call is the skill's only `danger-full-access` invocation, the acceptance checks after it (`--require prototype_dir` plus `verify_delegation.py`) are not optional
 - **Short-circuit**: If Phase 2 discovers a hard blocker early, short-circuit to Phase 3 immediately. No need to complete all sub-questions if the answer is already clear
 - **Inconclusive is OK**: Not every spike produces a clear answer. An INCONCLUSIVE result with documented unknowns is more valuable than a false GO
 - **Reuse research**: Spike reports in `.claude/docs/research/` persist across sessions. Reference prior spikes before starting new ones on similar topics

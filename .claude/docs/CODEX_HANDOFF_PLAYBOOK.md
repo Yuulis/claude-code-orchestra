@@ -34,12 +34,15 @@ Every Codex prompt should include:
 4. **Acceptance checks**: commands to run.
 5. **Output format**: concise markdown sections.
 
+> Invoke Codex through `.claude/skills/_shared/codex_consult.py` rather than a bare `codex exec` call — it runs `codex exec` with stdin closed (so callers never need `< /dev/null`) and captures stdout/stderr to log files. See `.claude/skills/codex-system/SKILL.md` for the full invocation contract.
+
 ## 3) Recommended Prompt Templates
 
 ### A. Planning / Design (read-only)
 
 ```bash
-codex exec --model "${CODEX_MODEL:-gpt-5.6-sol}" -c model_reasoning_effort="${CODEX_PLAN_EFFORT:-high}" --sandbox read-only "
+prompt_file="$(mktemp)"
+cat > "${prompt_file}" << 'EOF'
 Objective: Create an implementation plan for {feature}.
 Constraints:
 - Keep existing architecture unless explicitly justified.
@@ -55,13 +58,15 @@ Output format:
 ## Implementation Plan
 ## Risks
 ## Next Steps
-"
+EOF
+python3 .claude/skills/_shared/codex_consult.py --prompt-file "${prompt_file}" --label plan --sandbox read-only
 ```
 
-### B. Complex Implementation (workspace-write)
+### B. Complex Implementation (danger-full-access)
 
 ```bash
-codex exec --model "${CODEX_MODEL:-gpt-5.6-sol}" -c model_reasoning_effort="${CODEX_IMPL_EFFORT:-medium}" --sandbox workspace-write "
+prompt_file="$(mktemp)"
+cat > "${prompt_file}" << 'EOF'
 Objective: Implement {feature/fix}.
 Constraints:
 - Follow project lint/type/test rules.
@@ -75,7 +80,8 @@ Output format:
 ## Changes Made
 ## Validation
 ## Remaining Risks
-"
+EOF
+python3 .claude/skills/_shared/codex_consult.py --prompt-file "${prompt_file}" --label implement --sandbox danger-full-access
 ```
 
 ## 4) Claude-side Compression Rules
@@ -93,7 +99,7 @@ Store long analysis in `.claude/docs/research/` and reference the path in user-f
 If Codex output is not actionable:
 
 1. Re-run with explicit file list and acceptance checks.
-2. Split into two calls: `read-only` plan → `workspace-write` implementation.
+2. Split into two calls: `read-only` plan → `danger-full-access` implementation.
 3. Ask Codex to compare exactly two options and choose one.
 
 ## 6) Codex Plugin Workflows (codex-plugin-cc)
@@ -138,7 +144,7 @@ When the `openai/codex-plugin-cc` plugin is installed, use these structured work
 /codex:rescue --resume apply the top fix from the last run
 
 # Use specific model/effort
-/codex:rescue --model "${CODEX_RESCUE_MODEL:-gpt-5.6-terra}" --effort medium investigate the flaky test
+/codex:rescue --model gpt-5.5-mini --effort medium investigate the flaky test
 ```
 
 ### D. Plugin vs Direct CLI Decision
@@ -148,7 +154,7 @@ Use **Plugin** when:
 - You want background execution with job tracking
 - You want to delegate and monitor a task
 
-Use **Direct CLI** (`codex exec`) when:
+Use **Direct CLI** (the wrapper) when:
 - You need custom prompt format with specific output structure
-- You need sandbox mode control (read-only vs workspace-write)
+- You need sandbox mode control (read-only vs danger-full-access)
 - You are calling from a subagent pattern

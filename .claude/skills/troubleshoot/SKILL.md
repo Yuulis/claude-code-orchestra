@@ -1,7 +1,7 @@
 ---
 name: troubleshoot
 description: |
-  Diagnose and plan fixes for errors/bugs with Codex-first multi-agent collaboration (Codex + Opus subagents + Agent Teams).
+  Diagnose and plan fixes for errors/bugs with Codex-first multi-agent collaboration (Codex + Opus 4.6 + Agent Teams).
   Codex CLI is consulted in EVERY phase for deep code reasoning, hypothesis evaluation, and fix validation.
   Phase 1: Error reproduction & context gathering (Opus subagent 1M context + Codex initial analysis + Claude user interaction).
   Phase 2: Parallel diagnosis (Agent Teams: Root Cause Analyst [Codex-driven] + Impact Investigator [Opus + Codex risk analysis]).
@@ -53,6 +53,16 @@ Phase 3: FIX PLAN & APPROVE (Codex Validation + Claude Lead + User)
 > Main orchestrator context is precious. Large-scale error context analysis is delegated to Opus subagent (1M context).
 > Codex is consulted early for pattern recognition and hypothesis generation.
 
+### Step 0: Resolve Workspace
+
+Resolve this bug's deterministic workspace once. The title becomes file and directory names, so give it a short English descriptor of the bug -- not the user's raw wording, which the Language Protocol keeps out of paths:
+
+```bash
+python3 .claude/skills/_shared/workspace.py --skill troubleshoot --title "{short English title}" --create
+```
+
+This prints one JSON object: `slug`, `team_name`, and `paths` (`bug_report`, `context`, `root_cause`, `impact`, `diagnosis`, `state_input`, `team_dir`). Exit 0 resolved/created; 1 bad args; 2 applies only to `--verify` (used later in Phase 3); 3 the workspace directories could not be created. Use `{slug}`, `{team_name}`, and every `paths.*` value from this JSON verbatim for the rest of this skill -- do not re-derive them by hand in a later phase.
+
 ### Step 1: Gather Error Details from User
 
 Ask the user to provide:
@@ -63,33 +73,59 @@ Ask the user to provide:
 4. **Environment**: OS, Python version, dependency versions
 5. **Recent changes**: What changed before the error appeared (if known)
 
-### Step 2: Reproduce & Capture Context (repro.sh)
+### Step 2: Reproduce & Capture Context (repro.py)
 
 First run the bundled script for the **mechanical** capture — it runs the failing
-command, records stdout/stderr/exit code + extracted traceback to
-`.claude/logs/troubleshoot-repro.log`, and gathers recent git history (plus
-optional blame for a stack-trace file):
+command under a deadline, records stdout/stderr/exit code + extracted traceback
+to a log file keyed by `--label`, and gathers recent git history (plus optional
+last-commit context for a stack-trace file):
 
 ```bash
-bash .claude/skills/troubleshoot/repro.sh "<repro-command>" [--file <path-from-stack-trace>]
+python3 .claude/skills/troubleshoot/repro.py "<repro-command>" \
+  --label {slug}-initial [--file <path-from-stack-trace>] [--timeout 120]
 ```
 
-The script always exits `0` in capture mode (the repro command's own result is
-the JSON `exit_code`); exit `1` means bad arguments. Read the JSON fields:
-`exit_code`, `stdout_tail`, `stderr_tail`, `traceback`, `recent_commits`, `blame`,
-`log_file`.
+Always pass `--label {slug}-initial` here: the log path is
+`.claude/logs/troubleshoot-repro-{label}.log` and an unlabelled run reuses one
+shared file, so the Phase 3 fix-verification run (Step 2 task 3) would otherwise
+overwrite the original failure evidence this whole diagnosis rests on.
 
-Then hand that captured context to a `general-purpose` subagent (Opus) for the
+Exit codes: `0` capture completed; `1` bad arguments (including an unusable
+`--label` or `--bisect-good` ref, checked *before* the command runs); `2` the
+observed exit code differs from `--expect-exit` (not used in Phase 1); `3` the
+repro command timed out or the log could not be written. A failing repro command
+is the expected case and is still exit `0` — its result is the JSON `exit_code`.
+
+Read the JSON fields: `exit_code`, `timed_out`, `stdout_tail`, `stderr_tail`,
+`traceback`, `traceback_format`, `git_available`, `git_error`, `recent_commits`,
+`blame`, `blame_error`, `bisect`, `log_file`, `artifacts`. Two fields exist to
+stop a null being over-read: `traceback` is only extracted for CPython
+tracebacks (`traceback_format: "python"`), so `null` there means "no *Python*
+traceback" — a Node/Go/pytest-assertion stack is in `stderr_tail`. And
+`git_available: false` with a `git_error` means history could not be read at
+all; that is not the same as "no relevant recent history".
+
+On `timed_out: true` (exit 3) the command has no usable result: raise the
+`--timeout`, narrow the repro command, or treat the hang itself as the bug —
+do not proceed as if the capture succeeded.
+
+To scope a regression, add `--bisect-good <last-known-good-ref>`. It reports the
+`bisect` object (`candidate_commits`, `candidate_count`, `path_filter`,
+`bisect_command`) — the commits an actual `git bisect` would search, plus the
+command to start it. The script never checks out a commit itself, so driving the
+bisect stays the Impact Investigator's call in Phase 2.
+
+Then hand that captured context to `general-purpose-opus` for the
 **judgment** part — do NOT re-run the command or re-fetch git history:
 
 ```
 Task tool:
-  subagent_type: "general-purpose"
+  subagent_type: "general-purpose-opus"
   prompt: |
-    Analyze this reproduced error (already captured by repro.sh):
+    Analyze this reproduced error (already captured by repro.py):
 
     Error: {error message / stack trace}
-    repro.sh JSON: {exit_code, traceback, recent_commits, log_file}
+    repro.py JSON: {exit_code, traceback, recent_commits, log_file}
 
     Tasks:
     1. Read all files mentioned in the traceback; trace the execution flow
@@ -99,16 +135,15 @@ Task tool:
 
     Use Glob, Grep, and Read tools to investigate thoroughly.
 
-    Save analysis to .claude/docs/research/troubleshoot-{issue}-context.md
+    Save analysis to `{paths.context}` (from Phase 1 Step 0).
     Return concise summary (5-7 key findings).
 ```
 
 ### Step 2.5: Codex Initial Error Pattern Analysis
 
-Consult Codex for initial hypothesis generation before creating the Bug Report:
+Consult Codex for initial hypothesis generation before creating the Bug Report. Write the prompt to a file, then invoke the wrapper:
 
-```bash
-codex exec --model "${CODEX_MODEL:-gpt-5.6-sol}" -c model_reasoning_effort="${CODEX_PLAN_EFFORT:-high}" --sandbox read-only "
+```text
 Objective: Analyze this error and generate initial hypotheses for root cause.
 Context:
 - Error: {error message / stack trace}
@@ -123,48 +158,33 @@ Output format:
 ## Hypotheses (ranked by likelihood)
 ## Investigation Plan (per hypothesis)
 ## Known Similar Patterns
-" 2>/dev/null
 ```
+
+```bash
+python3 .claude/skills/_shared/codex_consult.py --prompt-file .claude/logs/codex/prompt-troubleshoot-initial.md --label troubleshoot-initial
+```
+
+`.claude/skills/_shared/codex_consult.py` exits 0 when Codex answered normally, 2 if the Codex CLI is not installed, 3 if Codex failed or timed out -- check the JSON `ok` field and read `response_file` for the answer (`error`/`stderr_file` explain a failure). Every later Codex consultation in this skill follows this same write-prompt-then-invoke pattern without repeating these exit codes.
 
 Use Codex's analysis to strengthen the Initial Hypotheses section of the Bug Report.
 
 ### Step 3: Create Bug Report
 
-Combine error details + codebase analysis + Codex initial hypotheses into a "Bug Report":
+Combine error details + codebase analysis + Codex initial hypotheses into a Bug Report following the template contract in `references/bug-report-template.md`. Save it to `{paths.bug_report}` (from Step 0), then validate it:
 
-```markdown
-## Bug Report: {issue}
-
-### Error
-- Message: {error message}
-- Location: {file:line}
-- Stack trace: {key frames}
-
-### Reproduction
-- Steps: {numbered list}
-- Reproducibility: {always / intermittent / environment-specific}
-
-### Immediate Context
-- Failing code: {file:line and surrounding logic}
-- Call chain: {caller -> ... -> failing function}
-- Recent changes: {relevant git commits}
-
-### Affected Area
-- Files involved: {list}
-- Related tests: {list with pass/fail status}
-
-### Initial Hypotheses (informed by Codex analysis)
-1. {Hypothesis A}: {brief reasoning} -- Codex confidence: {high/medium/low}
-2. {Hypothesis B}: {brief reasoning} -- Codex confidence: {high/medium/low}
-3. {Hypothesis C}: {brief reasoning} -- Codex confidence: {high/medium/low}
-
-### Codex Pattern Recognition
-- Error pattern: {Codex's classification of the error type}
-- Known similar patterns: {any patterns Codex identified}
-- Recommended investigation priority: {Codex's suggested order}
+```bash
+python3 .claude/skills/_shared/validate_doc.py --contract bug-report --file {paths.bug_report}
 ```
 
-This bug report is passed to Phase 2 teammates as shared context.
+`references/bug-report-template.md` is the single source of truth for the
+required sections; the `bug-report` contract is pinned to that template by
+`tests/test_validate_doc.py`. Do not work from a section list retyped here --
+that drift is exactly what this fix removed. Exit 0 means every required section
+is present; exit 2 means one is missing, and the JSON `sections_missing` names
+it. Fill the gap before proceeding; exit 1 means the file does not exist.
+
+Both Phase 2 teammates read this file, and Phase 3's `--verify` gate requires
+it, so it must exist on disk -- not only in this conversation.
 
 ---
 
@@ -178,18 +198,17 @@ This bug report is passed to Phase 2 teammates as shared context.
 ### Team Setup
 
 ```
-Create an agent team for troubleshooting: {issue}
+Create an agent team named `{team_name}` for troubleshooting: {slug}
 
 Spawn two teammates:
 
 1. **Root Cause Analyst** — Uses Codex CLI as PRIMARY analysis engine for deep code reasoning
-   Prompt: "You are the Root Cause Analyst for bug: {issue}.
+   Prompt: "You are the Root Cause Analyst for bug: {slug}.
 
    Your job: Identify the definitive root cause of this error through deep code analysis.
    Codex CLI is your PRIMARY tool for reasoning about code behavior.
 
-   Bug Report:
-   {bug report from Phase 1}
+   Bug Report: read `{paths.bug_report}` (written and validated in Phase 1 Step 3).
 
    Tasks:
    1. Trace the execution flow step by step from entry point to error
@@ -209,10 +228,13 @@ Spawn two teammates:
 
    You MUST consult Codex for EACH of the following analysis tasks.
    Do NOT skip Codex consultation — it is the primary reasoning engine for this role.
+   Each consultation below follows the same shape: write the prompt to a file,
+   then run `python3 .claude/skills/_shared/codex_consult.py --prompt-file <path> --label <label>`
+   and read the JSON `response_file`.
 
    ### 1. Execution Flow Tracing
-   For complex control flow, consult Codex:
-   codex exec --model "${CODEX_MODEL:-gpt-5.6-sol}" -c model_reasoning_effort="${CODEX_PLAN_EFFORT:-high}" --sandbox read-only '
+   For complex control flow, write the prompt below to a file, then consult Codex:
+
    Objective: Trace the execution flow from {entry point} to {error location}.
    Context:
    - Entry point: {file:function}
@@ -226,12 +248,13 @@ Spawn two teammates:
    ## State Transformations
    ## Assumption Violations
    ## Critical Decision Points
-   ' 2>/dev/null
+
+   python3 .claude/skills/_shared/codex_consult.py --prompt-file .claude/logs/codex/prompt-troubleshoot-flow.md --label troubleshoot-flow
 
    ### 2. Hypothesis Evaluation
-   For each hypothesis, consult Codex to evaluate evidence:
-   codex exec --model "${CODEX_MODEL:-gpt-5.6-sol}" -c model_reasoning_effort="${CODEX_PLAN_EFFORT:-high}" --sandbox read-only '
-   Objective: Evaluate hypothesis \"{hypothesis}\" against collected evidence.
+   For each hypothesis, write the prompt below to a file, then consult Codex to evaluate evidence:
+
+   Objective: Evaluate hypothesis "{hypothesis}" against collected evidence.
    Context:
    - Hypothesis: {description}
    - Evidence FOR: {list}
@@ -244,11 +267,12 @@ Spawn two teammates:
    ## Verdict (CONFIRMED / ELIMINATED / INCONCLUSIVE)
    ## Reasoning
    ## Remaining Unknowns
-   ' 2>/dev/null
+
+   python3 .claude/skills/_shared/codex_consult.py --prompt-file .claude/logs/codex/prompt-troubleshoot-hypothesis.md --label troubleshoot-hypothesis
 
    ### 3. Fix Approach Design
-   Consult Codex for trade-off analysis of fix alternatives:
-   codex exec --model "${CODEX_MODEL:-gpt-5.6-sol}" -c model_reasoning_effort="${CODEX_PLAN_EFFORT:-high}" --sandbox read-only '
+   Write the prompt below to a file, then consult Codex for trade-off analysis of fix alternatives:
+
    Objective: Design and compare fix approaches for root cause: {root cause description}.
    Context:
    - Root cause: {description}
@@ -264,11 +288,12 @@ Spawn two teammates:
    ## Approach B: {name}
    ## Comparison Matrix
    ## Recommendation with Rationale
-   ' 2>/dev/null
+
+   python3 .claude/skills/_shared/codex_consult.py --prompt-file .claude/logs/codex/prompt-troubleshoot-fix-design.md --label troubleshoot-fix-design
 
    ### 4. Fix Correctness Verification
-   Before finalizing, consult Codex to verify the proposed fix:
-   codex exec --model "${CODEX_MODEL:-gpt-5.6-sol}" -c model_reasoning_effort="${CODEX_PLAN_EFFORT:-high}" --sandbox read-only '
+   Before finalizing, write the prompt below to a file, then consult Codex to verify the proposed fix:
+
    Objective: Verify that the proposed fix correctly resolves the root cause.
    Context:
    - Root cause: {description}
@@ -283,9 +308,10 @@ Spawn two teammates:
    ## Edge Case Coverage
    ## New Failure Modes (if any)
    ## Confidence Level
-   ' 2>/dev/null
 
-   Save analysis to .claude/docs/research/troubleshoot-{issue}-root-cause.md
+   python3 .claude/skills/_shared/codex_consult.py --prompt-file .claude/logs/codex/prompt-troubleshoot-fix-verify.md --label troubleshoot-fix-verify
+
+   Save analysis to `{paths.root_cause}` (from Phase 1 Step 0).
 
    Communicate with Impact Investigator teammate:
    - Share root cause findings that expand the affected scope
@@ -294,9 +320,13 @@ Spawn two teammates:
 
    IMPORTANT — Work Log:
    When ALL your tasks are complete, write your work log to
-   .claude/logs/agent-teams/{team-name}/root-cause-analyst.md per the shared
+   {paths.team_dir}root-cause-analyst.md per the shared
    format: .claude/skills/_shared/work-log-format.md
-   Role-specific sections replacing Tasks Completed for this role:
+   Keep all five core sections, `## Tasks Completed` included -- the Lead
+   validates this log with `validate_doc.py --contract work-log`, which
+   rejects a log that drops it.
+   Role-specific sections (between Tasks Completed and Communication with
+   Teammates) for this role:
    ## Hypotheses Evaluated
    - [confirmed/eliminated] {hypothesis}: {evidence}
    ## Root Cause
@@ -312,13 +342,12 @@ Spawn two teammates:
    "
 
 2. **Impact Investigator** — Uses Opus with Git history, codebase search, WebSearch, and Codex for risk analysis
-   Prompt: "You are the Impact Investigator for bug: {issue}.
+   Prompt: "You are the Impact Investigator for bug: {slug}.
 
    Your job: Determine the full scope and impact of this bug, and gather context for the fix.
    Consult Codex for regression risk reasoning and fix safety analysis.
 
-   Bug Report:
-   {bug report from Phase 1}
+   Bug Report: read `{paths.bug_report}` (written and validated in Phase 1 Step 3).
 
    Tasks:
    1. Trace the bug's origin in git history:
@@ -346,10 +375,13 @@ Spawn two teammates:
    ## Codex Risk Analysis Protocol (MANDATORY)
 
    You MUST consult Codex for regression risk reasoning and fix safety analysis.
+   Each consultation below follows the same shape: write the prompt to a file,
+   then run `python3 .claude/skills/_shared/codex_consult.py --prompt-file <path> --label <label>`
+   and read the JSON `response_file`.
 
    ### Regression Risk Reasoning
-   Consult Codex to evaluate what could break if the proposed change is applied:
-   codex exec --model "${CODEX_MODEL:-gpt-5.6-sol}" -c model_reasoning_effort="${CODEX_PLAN_EFFORT:-high}" --sandbox read-only '
+   Write the prompt below to a file, then consult Codex to evaluate what could break if the proposed change is applied:
+
    Objective: Evaluate regression risk if {proposed change} is applied to {file:line}.
    Context:
    - Current behavior: {description}
@@ -365,11 +397,12 @@ Spawn two teammates:
    ## Affected Code Paths
    ## Implicit Contracts at Risk
    ## Recommended Safeguards
-   ' 2>/dev/null
+
+   python3 .claude/skills/_shared/codex_consult.py --prompt-file .claude/logs/codex/prompt-troubleshoot-regression.md --label troubleshoot-regression
 
    ### Fix Safety Analysis
-   Consult Codex to verify the proposed fix does not introduce new issues:
-   codex exec --model "${CODEX_MODEL:-gpt-5.6-sol}" -c model_reasoning_effort="${CODEX_PLAN_EFFORT:-high}" --sandbox read-only '
+   Write the prompt below to a file, then consult Codex to verify the proposed fix does not introduce new issues:
+
    Objective: Analyze whether the proposed fix introduces new issues or side effects.
    Context:
    - Root cause: {from Root Cause Analyst}
@@ -385,9 +418,10 @@ Spawn two teammates:
    ## New Issues Identified
    ## Side Effects
    ## Mitigation Recommendations
-   ' 2>/dev/null
 
-   Save findings to .claude/docs/research/troubleshoot-{issue}-impact.md
+   python3 .claude/skills/_shared/codex_consult.py --prompt-file .claude/logs/codex/prompt-troubleshoot-fix-safety.md --label troubleshoot-fix-safety
+
+   Save findings to `{paths.impact}` (from Phase 1 Step 0).
 
    Communicate with Root Cause Analyst teammate:
    - Share git history context that informs root cause
@@ -396,9 +430,13 @@ Spawn two teammates:
 
    IMPORTANT — Work Log:
    When ALL your tasks are complete, write your work log to
-   .claude/logs/agent-teams/{team-name}/impact-investigator.md per the shared
+   {paths.team_dir}impact-investigator.md per the shared
    format: .claude/skills/_shared/work-log-format.md
-   Role-specific sections replacing Tasks Completed for this role:
+   Keep all five core sections, `## Tasks Completed` included -- the Lead
+   validates this log with `validate_doc.py --contract work-log`, which
+   rejects a log that drops it.
+   Role-specific sections (between Tasks Completed and Communication with
+   Teammates) for this role:
    ## Git History
    - Introducing commit: {hash} — {description}
    - Related commits: {list}
@@ -442,16 +480,26 @@ Without Agent Teams, this discovery loop would require multiple sequential subag
 
 ### Step 1: Synthesize Diagnosis
 
+Gate Phase 3 on the Phase 1/2 artifacts **before** reading anything, so a
+teammate that stopped early cannot be mistaken for one that finished:
+
+```bash
+python3 .claude/skills/_shared/workspace.py --skill troubleshoot --slug {slug} --verify
+python3 .claude/skills/_shared/validate_doc.py --contract work-log \
+  --dir {paths.team_dir} --expect-files 2
+```
+
+The first call exits 0 when `bug_report`, `context`, `root_cause`, and `impact` are all present and non-trivial; exit 2 means one is missing or empty (read `verify.missing` / `verify.empty`). The second exits 0 only when both teammate logs exist and satisfy the work-log contract; exit 2 means a log is missing (`error: "expected 2 files, found N"`) or malformed (`files_failed > 0`, with `sections_missing` per file). "Wait for both teammates to complete" is a self-report; these two commands are the check. Resolve every gap before continuing.
+
 Read outputs from Phase 2:
-- `.claude/docs/research/troubleshoot-{issue}-root-cause.md` -- Root cause analysis
-- `.claude/docs/research/troubleshoot-{issue}-impact.md` -- Impact assessment
+- `{paths.root_cause}` -- Root cause analysis
+- `{paths.impact}` -- Impact assessment
 
 ### Step 1.5: Codex Fix Plan Validation
 
-Before presenting to the user, validate the fix plan with Codex:
+Before presenting to the user, validate the fix plan with Codex. Write the prompt to a file, then invoke the wrapper:
 
-```bash
-codex exec --model "${CODEX_MODEL:-gpt-5.6-sol}" -c model_reasoning_effort="${CODEX_PLAN_EFFORT:-high}" --sandbox read-only "
+```text
 Objective: Validate this fix plan for completeness and correctness.
 Context:
 - Root cause: {from Root Cause Analyst}
@@ -469,7 +517,10 @@ Output format:
 ## Potential New Issues
 ## Additional Test Cases Recommended
 ## Revised Task List (if needed)
-" 2>/dev/null
+```
+
+```bash
+python3 .claude/skills/_shared/codex_consult.py --prompt-file .claude/logs/codex/prompt-troubleshoot-plan-validation.md --label troubleshoot-plan-validation
 ```
 
 If Codex returns NEEDS_REVISION, update the fix plan before presenting to user.
@@ -491,97 +542,114 @@ Task breakdown should follow `references/debug-patterns.md`.
 Typical fix task structure:
 1. **Write failing test** -- Reproduce the bug as a test case
 2. **Apply fix** -- Implement the root cause fix
-3. **Verify fix** -- Re-run the original repro command through
-   `bash .claude/skills/troubleshoot/repro.sh "<repro-command>"` and confirm the
-   JSON `exit_code` is now `0` (the failing test/command passes).
-4. **Check regressions** -- Run the full test suite (wrap it in repro.sh to persist
-   the output to `.claude/logs/troubleshoot-repro.log` if you want it captured).
+3. **Verify fix** -- Re-run the original repro command with the expectation
+   asserted by the script rather than read by eye, and with its own label so the
+   Phase 1 failure log survives:
+
+   ```bash
+   python3 .claude/skills/troubleshoot/repro.py "<repro-command>" \
+     --label {slug}-fix-verify --expect-exit 0
+   ```
+
+   Exit `0` is the verification. Exit `2` means the fix is **not** verified
+   (`error: "expected exit 0, got N"`); exit `3` means it timed out and nothing
+   was verified at all. Do not report a verified fix on any exit code but `0`.
+4. **Check regressions** -- Run the quality gates:
+
+   ```bash
+   bash .claude/skills/_shared/verify.sh
+   ```
+
+   Read the JSON: `overall` is `pass` / `fail` / `no_gates`. Exit `0` is a pass; exit **`2`** is a gate failure *or* `no_gates` -- inspect `log_file` and the per-tool `tools` object. `no_gates` means zero gates actually ran, which is a contract violation, not a pass: fall back to the project's own verification commands and confirm manually, and pass `--allow-no-gates` only when you have done so deliberately. Quote the `tools` object rather than re-typing each status, so a `skipped` gate is never reported as a pass.
 5. **Fix collateral damage** -- Address blast radius items (if any)
 
-### Step 3: Update CLAUDE.md
+### Step 3: Update Shared State
 
-Add bug context to CLAUDE.md for cross-session persistence:
+Add bug context to `.claude/STATE.md` for cross-session persistence using the
+shared writer script and `.claude/rules/agent-state.md`.
 
-```markdown
----
+**Gather these fields** from the diagnosis:
 
-## Current Bug Fix: {issue}
+- **Context**: Error summary, Root cause, Affected files
+- **Fix Approach**: Recommended approach from Root Cause Analyst
+- **Codex Validation**: Result + additional test cases
+- **Regression Risks**: Key risks from Impact Investigator + Codex assessment
+- **Decisions** with rationale
 
-### Context
-- Error: {1-2 sentence summary}
-- Root cause: {description}
-- Affected files: {list}
+**Write the input JSON** to `{paths.state_input}` (from Phase 1 Step 0):
 
-### Fix Approach
-- {Recommended approach from Root Cause Analyst}
-
-### Codex Validation
-- Validation result: {PASS / NEEDS_REVISION}
-- Additional test cases: {from Codex validation}
-
-### Regression Risks
-- {Key risks from Impact Investigator}
-- {Codex risk assessment summary}
-
-### Decisions
-- {Decision 1}: {rationale}
-- {Decision 2}: {rationale}
+```json
+{
+  "title": "{slug}",
+  "sections": [
+    {"heading": "Context", "content": "- Error: ...\n- Root cause: ...\n- Affected files: ..."},
+    {"heading": "Fix Approach", "content": "- {approach}"},
+    {"heading": "Regression Risks", "content": "- {risks}"},
+    {"heading": "Decisions", "content": "- {Decision 1}: {rationale}"}
+  ]
+}
 ```
+
+**Run dry-run**, review the preview, then apply:
+
+```bash
+python3 .claude/skills/_shared/append_state_block.py \
+  --type bug-fix --input {paths.state_input}
+# Review the preview file path in the JSON output, then:
+python3 .claude/skills/_shared/append_state_block.py \
+  --type bug-fix --input {paths.state_input} --apply
+```
+
+Verify `"ok": true` and `"progress_tracker_preserved": true` in the output.
+Exit code 2 means the state structure is invalid; stop before writing.
 
 ### Step 4: Present to User
 
-Present the diagnosis and fix plan to the user:
+Compose the diagnosis and fix plan following the template contract in
+`references/diagnosis-template.md`. Write the composed presentation to
+`{paths.diagnosis}` (resolved in Phase 1 Step 0, never hand-built) and validate
+its structure before presenting it:
 
-```markdown
-## Diagnosis Report: {issue}
-
-### Error Reproduction
-{Reproduction result -- confirmed / partially confirmed / could not reproduce}
-
-### Root Cause (Root Cause Analyst + Codex)
-- **Defect**: {description of the underlying defect}
-- **Location**: `{file}:{line}`
-- **Trigger**: {conditions under which the error occurs}
-- **Evidence**: {key evidence supporting this conclusion}
-- **Codex confidence**: {Codex's assessment of root cause certainty}
-
-### Impact Assessment (Impact Investigator + Codex)
-- **Blast radius**: {affected code paths and features}
-- **Introducing commit**: {hash and description, if identified}
-- **External context**: {known issues, upstream fixes if any}
-- **Regression risk**: {what could break during fix}
-- **Codex risk assessment**: {Codex's regression risk verdict}
-
-### Fix Plan ({N} tasks) -- Codex Validated: {PASS / NEEDS_REVISION}
-1. Write failing test to reproduce the bug
-2. {Fix task -- the core fix}
-3. {Additional fix tasks from blast radius}
-4. {Additional test cases recommended by Codex}
-5. Run full test suite for regression check
-
-### Alternative Approaches Considered
-- **Approach A**: {description} -- {why chosen / not chosen}
-- **Approach B**: {description} -- {why chosen / not chosen}
-
-### Next Steps
-1. Shall we proceed with this fix plan?
-2. After approval, start fix implementation and regression review with `/team-execute`
-
----
-Shall we proceed with this fix plan?
+```bash
+python3 .claude/skills/_shared/validate_doc.py --contract diagnosis \
+  --file {paths.diagnosis}
+python3 .claude/skills/_shared/workspace.py --skill troubleshoot \
+  --slug {slug} --verify --require diagnosis
 ```
+
+`references/diagnosis-template.md` is the section source of truth (the
+`diagnosis` contract is pinned to it by `tests/test_validate_doc.py`). Exit 0
+means every required section is present; exit 2 means one is missing and
+`sections_missing` names it -- most often `Alternative Approaches Considered`,
+the section a rushed presentation drops. Then present the validated document to
+the user. Structure is all this gate checks: whether the diagnosis is *correct*
+remains the Codex validation in Step 1.5 plus the user's approval.
 
 ---
 
 ## Output Files
 
+Paths resolved once in Phase 1 Step 0 (`.claude/skills/_shared/workspace.py --skill troubleshoot`):
+
 | File | Author | Purpose |
 |------|--------|---------|
-| `.claude/docs/research/troubleshoot-{issue}-context.md` | Opus Subagent | Initial error context analysis |
-| `.claude/docs/research/troubleshoot-{issue}-root-cause.md` | Root Cause Analyst | Root cause analysis (Codex-driven) |
-| `.claude/docs/research/troubleshoot-{issue}-impact.md` | Impact Investigator | Impact assessment (with Codex risk analysis) |
-| `CLAUDE.md` (updated) | Lead | Cross-session bug fix context |
+| `{paths.bug_report}` | Lead | Bug Report (Phase 1 synthesis) |
+| `{paths.context}` | Opus Subagent | Initial error context analysis |
+| `{paths.root_cause}` | Root Cause Analyst | Root cause analysis (Codex-driven) |
+| `{paths.impact}` | Impact Investigator | Impact assessment (with Codex risk analysis) |
+| `.claude/STATE.md` (updated) | Lead | Cross-session bug fix context |
 | Task list (internal) | Lead | Fix implementation tracking |
+
+Run artifacts under `.claude/logs/`, keyed by `{slug}` so successive runs do not
+overwrite each other. The repro logs are not part of `--verify`; the diagnosis is
+checkable on demand with `--require diagnosis` (it is not a default required key,
+because in Phases 1-2 it does not exist yet):
+
+| File | Author | Purpose |
+|------|--------|---------|
+| `.claude/logs/troubleshoot-repro-{slug}-initial.log` | `repro.py` | Phase 1 failure capture |
+| `.claude/logs/troubleshoot-repro-{slug}-fix-verify.log` | `repro.py` | Phase 3 fix-verification capture |
+| `{paths.diagnosis}` | Lead | Phase 3 presentation, validated with `--contract diagnosis` and `--require diagnosis` |
 
 ---
 

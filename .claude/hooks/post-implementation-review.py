@@ -6,6 +6,7 @@ Tracks file changes and suggests code review when substantial
 code has been written.
 """
 
+import hashlib
 import json
 import os
 import sys
@@ -13,6 +14,11 @@ import sys
 # Input validation constants
 MAX_PATH_LENGTH = 4096
 MAX_CONTENT_LENGTH = 1_000_000
+
+# Namespacing constants for the state file path
+PROJECT_HASH_LENGTH = 12
+SESSION_PART_LENGTH = 8
+FALLBACK_SESSION_PART = "nosession"
 
 
 def validate_input(file_path: str, content: str) -> bool:
@@ -27,29 +33,51 @@ def validate_input(file_path: str, content: str) -> bool:
     return True
 
 
-# State file to track changes in this session
-STATE_FILE = "/tmp/claude-code-implementation-state.json"
+def get_state_file_path(data: dict) -> str:
+    """Derive a per-project, per-session state file path.
 
-# Thresholds for suggesting review
-MIN_FILES_FOR_REVIEW = 3
-MIN_LINES_FOR_REVIEW = 100
+    Namespacing prevents concurrent Claude Code sessions (same machine,
+    different projects, or the same project) from clobbering each other's
+    counters and last-suggested markers.
+    """
+    project_dir = os.environ.get("CLAUDE_PROJECT_DIR") or data.get("cwd") or os.getcwd()
+    project_hash = hashlib.sha256(os.path.abspath(project_dir).encode()).hexdigest()[
+        :PROJECT_HASH_LENGTH
+    ]
+    session_id = data.get("session_id", "")
+    session_part = (
+        session_id[:SESSION_PART_LENGTH] if session_id else FALLBACK_SESSION_PART
+    )
+    return f"/tmp/claude-code-impl-state-{project_hash}-{session_part}.json"
 
 
-def load_state() -> dict:
+# Thresholds for suggesting review. Deliberately low: a review that arrives
+# after three files and a hundred lines arrives after the design is already
+# settled, which is exactly when it is most expensive to act on.
+MIN_FILES_FOR_REVIEW = 2
+MIN_LINES_FOR_REVIEW = 50
+
+
+def load_state(state_file: str) -> dict:
     """Load session state."""
     try:
-        if os.path.exists(STATE_FILE):
-            with open(STATE_FILE) as f:
+        if os.path.exists(state_file):
+            with open(state_file) as f:
                 return json.load(f)
     except Exception:
         pass
-    return {"files_changed": [], "total_lines": 0, "review_suggested": False}
+    return {
+        "files_changed": [],
+        "total_lines": 0,
+        "suggested_at_files": 0,
+        "suggested_at_lines": 0,
+    }
 
 
-def save_state(state: dict):
+def save_state(state: dict, state_file: str):
     """Save session state."""
     try:
-        with open(STATE_FILE, "w") as f:
+        with open(state_file, "w") as f:
             json.dump(state, f)
     except Exception:
         pass
@@ -59,22 +87,30 @@ def count_lines(content: str) -> int:
     """Count meaningful lines in content."""
     lines = content.split("\n")
     # Count non-empty, non-comment lines
-    meaningful = [ln for ln in lines if ln.strip() and not ln.strip().startswith("#")]
+    meaningful = [
+        line for line in lines if line.strip() and not line.strip().startswith("#")
+    ]
     return len(meaningful)
 
 
 def should_suggest_review(state: dict) -> tuple[bool, str]:
-    """Check if we should suggest a code review."""
-    if state.get("review_suggested"):
-        return False, ""
+    """Check if we should suggest a code review.
 
+    Re-arms instead of latching. A one-shot latch combined with a threshold of
+    two files meant that two one-line edits spent the session's only review
+    nudge and the 400-line refactor an hour later got none. Instead the hint
+    debounces until the session has doubled in size since it last fired, so
+    each suggestion covers materially more work than the previous one.
+    """
     files_count = len(state.get("files_changed", []))
     total_lines = state.get("total_lines", 0)
+    suggested_at_files = state.get("suggested_at_files", 0)
+    suggested_at_lines = state.get("suggested_at_lines", 0)
 
-    if files_count >= MIN_FILES_FOR_REVIEW:
+    if files_count >= max(MIN_FILES_FOR_REVIEW, suggested_at_files * 2):
         return True, f"{files_count} files modified"
 
-    if total_lines >= MIN_LINES_FOR_REVIEW:
+    if total_lines >= max(MIN_LINES_FOR_REVIEW, suggested_at_lines * 2):
         return True, f"{total_lines}+ lines written"
 
     return False, ""
@@ -98,34 +134,42 @@ def main():
             sys.exit(0)
 
         # Skip non-source files
-        if not any(file_path.endswith(ext) for ext in [".py", ".ts", ".js", ".tsx", ".jsx", ".go", ".rs"]):
+        if not any(
+            file_path.endswith(ext)
+            for ext in [".py", ".ts", ".js", ".tsx", ".jsx", ".go", ".rs"]
+        ):
             sys.exit(0)
 
-        # Load and update state
-        state = load_state()
+        # Load and update state (namespaced per project + session)
+        state_file = get_state_file_path(data)
+        state = load_state(state_file)
         if file_path not in state["files_changed"]:
             state["files_changed"].append(file_path)
         state["total_lines"] += count_lines(content)
-        save_state(state)
+        save_state(state, state_file)
 
         # Check if review should be suggested
         should_review, reason = should_suggest_review(state)
 
         if should_review:
-            state["review_suggested"] = True
-            save_state(state)
+            # Record the size at which the hint fired; the next one waits for
+            # double that, on both axes, so firing on files does not leave the
+            # line counter free to fire again on the very next edit.
+            state["suggested_at_files"] = len(state["files_changed"])
+            state["suggested_at_lines"] = state["total_lines"]
+            save_state(state, state_file)
 
             output = {
                 "hookSpecificOutput": {
                     "hookEventName": "PostToolUse",
                     "additionalContext": (
                         f"[Code Review Suggestion] {reason} in this session. "
-                        "Consider a review of the implementation: default lane is a "
-                        "Claude Sonnet subagent (Opus for high-risk: security, "
-                        "architecture, data model). For high-risk diffs, additionally "
-                        "consider `/codex:review` as a cross-tool lane "
-                        "(lanes: .claude/rules/model-routing.md)."
-                    )
+                        "You SHOULD have Codex review the implementation before "
+                        "reporting it done — it catches bugs, security issues, and "
+                        "design flaws while the change is still small. "
+                        "**Recommended**: Use Task tool with subagent_type='general-purpose-opus' "
+                        "to consult Codex with git diff and preserve main context."
+                    ),
                 }
             }
             print(json.dumps(output))

@@ -2,7 +2,7 @@
 name: catchup
 description: |
   Comprehensive onboarding for new or returning contributors.
-  Scans repository artifacts (git history, CLAUDE.md / AGENTS.md,
+  Scans repository artifacts (git history, .claude/STATE.md,
   project rules, skill catalog, DESIGN.md, research & library notes,
   checkpoints, agent-team logs) and synthesizes a GUIDE.md at the
   repository root summarizing what has been worked on, why, and how
@@ -27,154 +27,150 @@ metadata:
 - You want to capture the current session for later (use `/checkpointing`)
 - You want running design history (use `/design-tracker` or read `DESIGN.md` directly)
 
-Full skill routing: CLAUDE.md §3 Routing Policy.
+Full skill routing: `AGENTS.md` section "Routing Policy".
 
 ## Workflow
 
 ```
 Phase 1: COLLECT (collect_repo_state.py)
-  Run the collector script -> single JSON of repo artifacts
+  Run the collector script -> single JSON of every dataset the template needs
     |
 Phase 2: SYNTHESIZE (Claude Lead)
-  Integrate findings into the GUIDE.md structure
+  Turn that JSON into per-section prose — the judgment step
     |
-Phase 3: WRITE GUIDE.md
-  Write to repository root, show diff summary to the user
+Phase 3: ASSEMBLE (write_guide.py)
+  Stamp, order, validate, and write GUIDE.md under the Writer Safety Contract
 ```
 
 ---
 
 ## Phase 1: COLLECT (via collect_repo_state.py)
 
-Run the bundled collector script. It aggregates git state, project identity,
-rules/skills/agents frontmatter, design & research docs, checkpoints, and
-CLI-log topics into one JSON document — replacing the old subagent scan and
-keeping the orchestrator context light:
-
 ```bash
 python3 .claude/skills/catchup/collect_repo_state.py
 ```
 
-Optional flags: `--since "30 days ago"` (recent-work window), `--max-commits 100`.
+Optional flags: `--since "30 days ago"` (recent-work window, passed to git),
+`--max-commits 100`, `--claude-home DIR` (Agent Teams data root),
+`--project-root DIR`.
 
-The script degrades gracefully — any missing path becomes `null` / `"not present"`
-and it still exits `0` (exit `1` only signals a non-git directory, with `git:null`).
-Feed the emitted JSON to Phase 2 synthesis as its sole input.
+Exit codes: `0` ok · `1` bad arguments · `2` not a git repository, or a
+`SKILL.md`/agent frontmatter that yields neither a name nor a description ·
+`3` a git subcommand failed inside a real repository. The payload always carries
+top-level `ok` and `errors`; check those rather than assuming exit `0`.
+
+Degradation is named, never silent: an absent file is `{"present": false}`, an
+unreadable one carries an `error`, and a failed git subcommand is `null` plus an
+entry in `git.errors` — distinct from `[]`, which means genuinely empty.
 
 Top-level JSON keys:
 
-- `git` — log (oneline), branches, status, stash, diffstat.
-- `identity` — README / CLAUDE.md / AGENTS.md / pyproject.toml presence + first line.
-- `rules` — rule files + first line each.
-- `skills` — name + short-description (available slash commands).
-- `agents` — name + specialization.
-- `docs` — DESIGN.md presence, research & library listings (file + first line).
-- `checkpoints` — newest 5 (file + first heading).
-- `cli_tools` — recent Codex consultation topics.
+- `git` — `log`, `branches`, `status`, `stash`, `diffstat`, `recent_stat`,
+  `current_branch`, `errors`.
+- `identity` — `README.md`, `AGENTS.md`, `pyproject.toml` presence + first line,
+  plus `identity.state` with `main_agent`, `current_project`,
+  `current_feature`, `current_bug_fix` read from `.claude/STATE.md`.
+- `rules` — `{present, items[{file, first_line}]}`.
+- `skills` — `{present, items[{name, short_description, file}],
+  frontmatter_errors}`.
+- `agents` — `{present, items[{name, specialization, model, file}],
+  frontmatter_errors}`.
+- `docs` — `design{present, placeholder, key_decisions[]}`, `research`,
+  `libraries`.
+- `env` — `manifests`, `scripts` (from `pyproject.toml`), `commands`
+  (each with the `source` file it was quoted from), `errors`.
+- `checkpoints` — newest 5 (file + `first_line`: the frontmatter `summary`,
+  else its `slug`, else the first non-empty body line — never the `---` fence).
+- `agent_teams` — `sessions[{name, members, tasks_total, tasks_completed}]`
+  and in-repo `work_logs`.
+- `cli_tools` — recent consultations for **every** tool, each tagged with
+  `tool`, plus `skipped_lines`.
 
-For very large repos you may still hand this JSON to a `general-purpose` subagent
-for thematic grouping, but the mechanical collection is already done.
+Feed the emitted JSON to Phase 2 as its sole input. For very large repos hand it
+to `general-purpose-opus` for the thematic grouping.
 
 ---
 
 ## Phase 2: SYNTHESIZE (Claude Lead)
 
-Integrate the subagent's structured findings into the `GUIDE.md` layout below. Do not re-read the source files; rely on the subagent's summary to preserve orchestrator context.
+Turn the collected JSON into one markdown body per section of
+`references/guide-template.md`. Do not re-read the source files; the collector
+now gathers every dataset the template asks for, so re-reading only costs
+context.
 
-If an expected section is missing from the subagent output (e.g. no checkpoints exist), omit the corresponding section in `GUIDE.md` rather than leaving a placeholder.
+This phase is judgment and stays here: grouping commits into 3–7 themes, ranking
+the top design decisions, and deciding which optional sections are worth a
+reader's time have more than one defensible answer. `write_guide.py` deliberately
+takes the prose as input rather than generating it.
+
+Omit a section entirely when its source data is absent. Never leave a
+`{placeholder}` — Phase 3 rejects them.
+
+Write the bodies to a JSON file keyed by the section ids in
+`references/guide-template.md`:
+
+```json
+{
+  "what_is_this_project": "- **Purpose**: ...",
+  "recent_work": "- ...",
+  "capabilities": "### Slash commands\n\n| Command | Purpose |\n|---|---|\n...",
+  "resume_work": "- **Environment setup**: `uv sync`"
+}
+```
 
 ---
 
-## Phase 3: WRITE GUIDE.md
+## Phase 3: ASSEMBLE (via write_guide.py)
 
-Write the final document to `GUIDE.md` at the repository root (overwrite if it exists). After writing:
+```bash
+python3 .claude/skills/catchup/write_guide.py --input body.json
+python3 .claude/skills/catchup/write_guide.py --input body.json --apply
+```
 
-1. Report the file path and line count to the user
-2. List the top-level sections that were included
-3. Note sections that were skipped because the source was absent
+The first call previews to `.claude/logs/guide-preview-*.md`; the second writes
+`GUIDE.md` atomically, refuses if `GUIDE.md` changed since it was read, and
+validates the composed document (`validate_doc.py --contract guide`) before
+replacing it. `--now ISO8601` injects the date stamp; `--project-root DIR`
+relocates the root.
+
+The script owns the title, the `_Generated by /catchup on YYYY-MM-DD_` line, the
+section order and fixed numbering, and the `_Sources:_` footer — do not supply
+them in `--input`.
+
+Payload: `{ok, guide_path, preview_path, sections_written, sections_omitted,
+line_count, residual_placeholders, applied, result, artifacts}`. Exit codes:
+`0` preview/applied · `1` bad args or unreadable `--input` · `2` unknown section
+id, a missing required section (`what_is_this_project`, `recent_work`,
+`capabilities`, `resume_work`), a residual `{placeholder}`, or a composed
+document the `guide` contract rejects · `3` write failure or concurrent
+modification.
+
+Report `guide_path`, `line_count`, `sections_written`, and `sections_omitted`
+from the payload rather than restating them from memory.
 
 ---
 
 ## `GUIDE.md` Structure
 
-Use this layout. Keep the tone factual and skimmable.
-
-```markdown
-# Project Guide
-
-_Generated by `/catchup` on {YYYY-MM-DD}_
-
-## 1. What is this project?
-
-- **Purpose**: {one sentence from README/CLAUDE.md}
-- **Tech stack**: {language, package manager, key libraries}
-- **Conventions**: {language for code / communication, lint / test tools}
-
-## 2. Current State
-
-- **Active branch**: {branch name}
-- **Current focus** (from CLAUDE.md): {Current Project section, if present}
-- **Work in progress**: {uncommitted files; omit section if none}
-- **Stashed experiments**: {stash entries; omit if none}
-
-## 3. Recent Work (last 30 days)
-
-{3–7 thematic bullets grouping recent commits, with commit counts}
-
-## 4. Architecture & Key Decisions
-
-{Top 5 design decisions from DESIGN.md with rationale}
-
-### Active research threads
-{List from .claude/docs/research/ with 1-line summaries}
-
-### Library constraints
-{List from .claude/docs/libraries/ with 1-line summaries}
-
-## 5. Capabilities
-
-### Slash commands
-{Table: command — purpose, from skills/ frontmatter}
-
-### Subagents
-{Table: name — specialization, from agents/ frontmatter}
-
-## 6. Project Rules
-
-{One-line summary per .claude/rules/*.md file}
-
-## 7. How to Resume Work
-
-- **Environment setup**: {commands from pyproject.toml / README}
-- **Common commands**: {lint / test / run / build}
-- **Suggested next skills**: {derive from CLAUDE.md §3 Routing Policy and the
-  skill catalog in the collected JSON (e.g. `/feature`, `/spike`,
-  `/troubleshoot`)}
-
-## 8. Recent Sessions (if available)
-
-### Checkpoints
-{Latest 5 checkpoint summaries}
-
-### Agent Teams sessions
-{Group by team-name, show teammates + outcome}
-
-### Frequent CLI consultations
-{Codex topics from cli-tools.jsonl}
-
----
-
-_Sources: git log, CLAUDE.md, AGENTS.md, .claude/rules/, .claude/skills/,
-.claude/docs/, .claude/checkpoints/, .claude/logs/._
-```
-
-Sections 2 (WIP / stash), 4 (research / libraries), 6, 8 are omitted when their sources are empty. Do not leave placeholder text.
+`references/guide-template.md` is the contract: it maps each section id to its
+numbered heading, marks which four are required, and lists the collector fields
+each one draws on. Section numbers never shift when an optional section is
+omitted.
 
 ---
 
 ## Tips
 
-- **Context discipline**: Phase 1 runs in a subagent so the orchestrator never loads raw logs or long docs. Only the structured summary comes back.
-- **Idempotent**: `GUIDE.md` is regenerated from sources each run. Do not edit it by hand — update the underlying sources (CLAUDE.md, DESIGN.md, etc.) and re-run.
-- **`.gitignore` awareness**: `.claude/checkpoints/` and `.claude/logs/` are gitignored. On a fresh clone they will be absent; the skill handles this gracefully.
-- **Language**: `GUIDE.md` content itself follows the project's user-facing language convention (Japanese for this repository), while code identifiers and command names stay in English.
+- **Context discipline**: Phase 1 is a single script run, not a subagent scan —
+  the orchestrator never loads raw logs or long docs. Only hand the JSON to a
+  subagent when the synthesis itself is large.
+- **Not byte-stable**: `GUIDE.md` is regenerated from sources each run, but its
+  prose is LLM-authored, so two runs over identical sources produce different
+  text and a noisy diff on a tracked root file. Do not edit it by hand — update
+  the underlying sources (`.claude/STATE.md`, `DESIGN.md`, rules) and re-run.
+- **`.gitignore` awareness**: `.claude/checkpoints/` and `.claude/logs/` are
+  gitignored. On a fresh clone they will be absent; the collector reports that
+  as `present: false` rather than failing.
+- **Language**: `GUIDE.md` is user-facing prose, so it follows
+  `.claude/rules/language.md` rather than the English technical-document rule,
+  while code identifiers and command names stay in English.

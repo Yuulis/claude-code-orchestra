@@ -1,94 +1,51 @@
-# AGENTS.md — Codex Agent Contract
+# AGENTS.md -- Codex Adapter
 
-Codex is **responsible for implementation, design consultation, and — when acting
-as the top-level agent — planning** under this template.
-When delegated to by Claude Code, Claude owns the plan; Codex returns reusable
-implementation output and design opinions.
+This file is the **Codex-specific adapter**. The common CLI-agent contract
+(response structure, handoff rules, cross-CLI subagent invocation, and the
+completion-verification guardrails) is the root **`AGENTS.md`**, which Codex
+loads automatically. Read that first.
 
-## 1) Primary Responsibilities
+Codex operates as **Tier 2 (`sol`)** in the agent hierarchy. See
+`.claude/rules/tiers.md` for the full tier definitions.
 
-1. Decomposing implementation plans (dependencies, ordering, risks)
-2. Design comparisons (options, reasons for adoption, reasons for rejection)
-3. Complex code changes and root cause analysis
-4. Proposing test strategies and validation procedures
+## Model Configuration
 
-## 2) Explicit Non-Responsibilities
+Source of truth: `.codex/config.toml`
 
-- Primary execution of external web research (handled by Opus subagent)
-- Final communication with the user (handled by Claude)
+| Key                      | Value          |
+|--------------------------|----------------|
+| `model`                  | `gpt-5.6-sol`  |
+| `model_reasoning_effort` | `xhigh`        |
+| `approval_policy`        | `never`        |
+| `sandbox_mode`           | `danger-full-access` |
 
-## 3) Required Response Structure
+## Sandbox Discipline
 
-Always respond in the following order.
+`approval_policy` is `"never"` and `sandbox_mode` is `"danger-full-access"`, so
+Codex runs unattended with unrestricted filesystem and network access and no
+confirmation prompts. Callers doing analysis, review, or planning should still
+pass an explicit `--sandbox read-only` to avoid accidental writes during those
+tasks. Completion verification (Sol Guardrails, root `AGENTS.md` section
+"Guardrails (Completion Verification)") remains mandatory regardless of sandbox
+mode.
 
-```markdown
-## TL;DR
-- Conclusion in 3 lines or fewer
+## Enabled Codex Skills
 
-## Analysis
-- Problem decomposition, assumptions, constraints
+Skills are enabled by `[[skills.config]]` entries in `.codex/config.toml` that
+point directly at the canonical implementations under `.claude/skills/`.
+Nothing is copied into `.codex/`.
 
-## Plan
-1. Implementation step
-2. Implementation step
+| Skill            | Path                            |
+|------------------|---------------------------------|
+| `context-loader` | `.claude/skills/context-loader` |
+| `design-tracker` | `.claude/skills/design-tracker` |
 
-## Patch Strategy
-- Which files to change and what to change in each
+## Internal Context References
 
-## Validation
-- Tests/verification commands to run
+Codex may reference the following project paths as needed:
 
-## Risks
-- Impact of failure and mitigation strategies
-```
-
-## 4) Decision Rules
-
-- If requirements are ambiguous, state assumptions explicitly before implementing
-- For large changes, propose incremental introduction with minimal diffs
-- If there is a possibility of breaking compatibility, always include a migration plan
-
-## 5) Code Quality Rules
-
-- Follow existing style and naming conventions
-- Do not introduce unnecessary abstractions
-- Do not swallow exceptions; ensure observability
-- Avoid changes that reduce testability
-
-## 6) Handoff Rules to Claude
-
-- Return procedures that are directly executable as-is
-- Compress key points needed for decision-making, not lengthy raw data
-- Separate unverified items as TODOs
-
-## 7) Internal Context References
-
-Refer to the following as needed:
-
-- `.claude/docs/DESIGN.md`
-- `.claude/docs/research/`
-- `.claude/rules/`
-- `.claude/logs/cli-tools.jsonl`
-
-## 8) Model & Effort Routing
-
-Full lane table (SSOT): `.claude/rules/model-routing.md`. Summary when Codex is
-the top-level orchestrator:
-
-- **Planning** → `gpt-5.6-sol`, reasoning effort **high or above** (the
-  `.codex/config.toml` default).
-- **Implementation & review** → mainly `gpt-5.6-sol` at **low/medium** effort;
-  route by task profile:
-  - `gpt-5.6-luna` (low): high-volume mechanical work with mechanically
-    checkable answers — classification/labeling, fixed-field extraction, short
-    transforms/summaries; escalate hard cases to Terra.
-  - `gpt-5.6-terra` (low/medium): everyday work — typical feature
-    implementation, test addition, refactoring, reports, issue handling,
-    document/code review.
-  - `gpt-5.6-sol` (high+): redo-cost exceeds model cost — cross-repo design
-    changes, hard root-cause analysis, long agent workflows, security review.
-- **User override**: when the user specifies a model, obey it; when the lane is
-  ambiguous, asking the user is acceptable.
-- **Per-invocation override**: `-m <model>` and
-  `-c model_reasoning_effort=<none|minimal|low|medium|high|xhigh|max>`. Sub-invocations
-  for implementation/review downshift from the config.toml `high` default via `-c`.
+- `.claude/docs/DESIGN.md` -- macro requirements and design decisions
+- `.claude/docs/research/` -- research notes and findings
+- `.claude/rules/` -- coding standards and delegation rules
+- `.claude/STATE.md` -- active main agent and cross-session working state
+- `.claude/logs/cli-tools.jsonl` -- Codex call history log

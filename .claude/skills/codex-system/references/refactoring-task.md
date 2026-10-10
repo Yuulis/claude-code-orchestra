@@ -61,8 +61,11 @@ Provide:
 
 ## Example Invocation
 
+Write the filled-in prompt template to a file, then call the wrapper (flags, JSON result, and exit codes are documented in `../SKILL.md`):
+
 ```bash
-codex exec --model "${CODEX_MODEL:-gpt-5.6-sol}" -c model_reasoning_effort="${CODEX_IMPL_EFFORT:-medium}" --sandbox workspace-write "
+prompt_file="$(mktemp)"
+cat > "${prompt_file}" << EOF
 Refactor this code for simplicity:
 
 ## Target Code
@@ -79,7 +82,8 @@ $(cat src/services/llm_client.py)
 - Improve naming
 
 [Principles and patterns as above...]
-" 2>/dev/null
+EOF
+python3 .claude/skills/_shared/codex_consult.py --prompt-file "${prompt_file}" --label refactor --sandbox danger-full-access
 ```
 
 ## Checklist
@@ -95,10 +99,15 @@ $(cat src/services/llm_client.py)
 - [ ] Verify library usage unchanged
 
 ### After Refactoring
-- [ ] All tests pass
-- [ ] Behavior unchanged
+- [ ] `bash .claude/skills/_shared/verify.sh` → exit `0` (`overall: "pass"`; exit `2` is a failed gate *or* no gate executed)
+- [ ] `python3 .claude/skills/_shared/verify_delegation.py --forbid-outside {scope}` evidence read — `verdict` is always `needs-review`
+- [ ] Behavior unchanged, and no test was deleted, skipped, or weakened to get there
 - [ ] Code is simpler
 - [ ] Type hints appropriate
+
+This is a `danger-full-access` call, so the full protocol in
+`codex-system/SKILL.md` → *Verify Before Trusting* applies, including the
+re-delegate-once-then-halt rule.
 
 ## When to Use
 

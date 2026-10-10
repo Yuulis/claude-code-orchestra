@@ -29,8 +29,12 @@ Before calling Codex, gather relevant context:
 
 ### Step 2: Call Codex CLI
 
+Write the prompt below to a file, then run the wrapper (`.claude/skills/_shared/codex_consult.py`;
+flags, JSON result, and exit codes are documented in `.claude/skills/codex-system/SKILL.md`):
+
 ```bash
-codex exec --model "${CODEX_MODEL:-gpt-5.6-sol}" -c model_reasoning_effort="${CODEX_IMPL_EFFORT:-medium}" --sandbox workspace-write "
+prompt_file="$(mktemp)"
+cat > "${prompt_file}" << 'EOF'
 Analyze this error and provide root cause + fix:
 
 ## Error Output
@@ -47,8 +51,15 @@ Respond with:
 2. Why this happened
 3. Specific fix (code diff or exact changes)
 4. How to prevent this in the future
-" 2>/dev/null
+EOF
+python3 .claude/skills/_shared/codex_consult.py --prompt-file "${prompt_file}" \
+  --label error-analysis --caller codex-debugger --sandbox read-only
 ```
+
+Diagnosis is a read: `--sandbox read-only` keeps this step from editing the
+code it is still trying to explain, and Step 3 is where the fix is applied
+deliberately. `--caller codex-debugger` makes any edit traceable back to this
+agent.
 
 ### Step 3: Apply and Verify the Fix
 
@@ -85,9 +96,9 @@ Return actionable results, not raw Codex dumps.
 
 ## Language Rules
 
-- **Codex queries**: English
-- **Thinking/Reasoning**: English
-- **Output to main**: English
+Everything this agent produces is English: Codex queries, reasoning, and the
+return to the main agent. The main agent's own reply to the user follows
+`.claude/rules/language.md`.
 
 ## Output Format
 

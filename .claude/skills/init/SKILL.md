@@ -1,153 +1,148 @@
 ---
 name: init
-description: Analyze project structure, write the thick requirements doc (.claude/docs/DESIGN.md), populate the thin "Repository Identity" pointer in CLAUDE.md (Zone B), and mirror identity into AGENTS.md.
+description: Analyze project structure, populate .claude/docs/DESIGN.md, and write the thin Repository Identity section in .claude/STATE.md.
 disable-model-invocation: true
 ---
 
 # Initialize Project Configuration
 
-Analyze this project and:
+Initialize project-owned context without expanding the always-loaded root
+`AGENTS.md`.
 
-1. Generate the **thick** 要件定義書 at `.claude/docs/DESIGN.md` (macro requirements & design — *what* this project builds and *why*).
-2. Populate the **thin** **Repository Identity (Zone B)** pointer in `CLAUDE.md` (a brief identity line + a pointer to DESIGN.md — no thick content here).
-3. Mirror the identity into the project-specific sections of `AGENTS.md`.
+## Ownership
 
-## Document hierarchy (where content lives)
-
-- `CLAUDE.md` = orchestrator contract. Zone B holds only a **thin identity + pointer**.
-- `.claude/docs/DESIGN.md` = 要件定義書 (thick macro requirements/design). This is where rich project content belongs.
-- `PROGRESS.md` = micro work progress (maintained by `/checkpointing`).
-
-## CLAUDE.md zones
-
-Zone contract (3-zone layout, markers, ownership, markers-missing rule): `.claude/rules/claude-md-zones.md`.
-**This skill writes ONLY Zone B** (between the two markers) — never Zone A or Zone C.
-
-## Important
-
-- For `AGENTS.md`, do NOT modify the "Extensions" section and below — only update the top project-specific sections.
+- `.claude/docs/DESIGN.md` owns macro requirements and design.
+- `.claude/STATE.md` owns the active main agent, thin repository identity, and
+  cross-session working state.
+- Root `AGENTS.md` is template-owned and must not be edited by this skill.
+  Never create a `CLAUDE.md`: Claude Code reads `AGENTS.md` only when no
+  `CLAUDE.md`, `.claude/CLAUDE.md` or `CLAUDE.local.md` exists.
+- `PROGRESS.md` is maintained by `/checkpointing`.
 
 ## Steps
 
-### 1. Project Analysis
+### 1. Collect stack evidence
 
-Run the bundled detector instead of hand-scanning manifests:
+Run:
 
 ```bash
 python3 .claude/skills/init/detect_stack.py
 ```
 
-Interpret the JSON:
+The script reports **evidence, not conclusions**. It never infers a command:
+`evidence.tools` names the `[tool.*]` tables declared in `pyproject.toml`,
+`evidence.scripts` carries the verbatim `package.json` script strings, and
+`evidence.dependencies` gives each dependency's `name`, its raw `spec`, the
+`manifest` it came from, and the `key` it was declared under
+(`project.dependencies`, `project.optional-dependencies.dev`,
+`dependency-groups.lint`, `devDependencies.x`, …). **You** decide from that
+evidence which commands and libraries are real; do not copy a command the
+repository does not declare.
 
-- `languages`, `package_managers`, `manifests` — detected tech stack
-  (pyproject/package.json/Cargo.toml/go.mod/setup.py/requirements.txt, Makefile,
-  Dockerfile).
-- `commands` — inferred lint/test/format/typecheck commands.
-- `libraries` — top-level dependencies.
-- `ci` — CI systems (e.g. `github-actions`).
-- `claude_md_markers` — boundary-marker presence (see Step 4).
+Read these fields before writing anything:
 
-Exit codes: `0` normal · `2` CLAUDE.md boundary markers missing (handle per Step 4
-before writing Zone B). Use this JSON to fill DESIGN.md (Step 3) and Zone B.
+- `warnings` — a manifest that could not be read, decoded, or parsed. Non-empty
+  means the evidence is partial, even though the exit code is `0`.
+- `evidence.parsed_manifests` / `evidence.unparsed_manifests` — "parsed and
+  empty" versus "present but not parsed for dependencies" (`Cargo.toml`,
+  `go.mod`, `setup.py`, `Makefile`, `Dockerfile`).
+- `manifests` — every checked filename with an explicit `true`/`false`, so
+  "checked and absent" is never mistaken for "never checked".
+- `agent_bootstrap` — `agents_md`, `no_claude_md_shadow`, `state_md`,
+  `claude_agents_dir`, `claude_skills_dir`, `cli_subagent_contract`.
 
-### 2. Ask User
+Exit codes: `0` normal · `1` bad arguments, including a `--project-root` that is
+not a directory · `2` the agent bootstrap is invalid — `ok: false` and `error`
+name the failed markers. Exit `2` covers the root `AGENTS.md` contract, the
+absence of a shadowing `CLAUDE.md`, shared state, the CLI-subagent contract,
+**and both native runtime directories** (`.claude/agents` and `.claude/skills` must be
+real directories; a missing one silently disables all native agent and skill
+discovery). Stop and repair the installation — `bash scripts/check.sh` diagnoses
+the same layout — before writing context.
 
-Use AskUserQuestion tool to ask:
+### 2. Ask for missing context
 
-1. **Project overview**: What does this project do? (1-2 sentences)
-2. **Code language**: English or Japanese for comments/variable names?
-3. **Additional rules**: Any other coding conventions to follow?
+Ask the user for the project purpose, code-language preference, and additional
+conventions only when repository evidence does not already answer them.
 
-### 3. Generate the thick DESIGN.md (要件定義書)
+### 3. Populate DESIGN.md
 
-`.claude/docs/DESIGN.md` is the **macro requirements & design** document. This is where
-the rich project content goes (not CLAUDE.md). Read the existing template first, then
-fill each section **as far as the project evidence allows**, using the analysis from
-step 1 and the user's answers from step 2. Leave a section as its placeholder only when
-there is genuinely no basis to fill it.
+DESIGN.md is written through the typed writer, never by hand: it is a
+user-owned document, and `update_design.py` supplies the dry-run preview, the
+atomic replace, the concurrent-modification hash guard, per-cell `|` escaping,
+and validation of the composed document before it replaces the original.
 
-Map your findings onto the fixed section structure (keep the Japanese+English headings
-and the leading document-map links intact):
+Write the input JSON to `.claude/logs/init-design-input.json` and use only the
+typed keys:
 
-| Section | What to fill in |
-|---------|-----------------|
-| `## 背景・目的 (Background & Purpose)` | The user's project overview answer; the problem it solves and for whom. |
-| `## スコープ (Scope)` | In Scope / Out of Scope bullets inferred from the overview and codebase. |
-| `## 機能要件 (Functional Requirements)` | Table rows (ID / 要件 / 優先度 / 備考) for features evident in the code or stated by the user. |
-| `## 非機能要件 (Non-Functional Requirements)` | Table rows (カテゴリ / 要件 / 指標) for performance, security, maintainability, etc. |
-| `## アーキテクチャ (Architecture)` | Overview narrative + the Agent Roles table (orchestrator / delegated agents). |
-| `## 技術選定 (Tech Stack & Rationale)` | Table rows (領域 / 採用技術 / 理由 / 代替案) from the detected stack. |
-| `## 制約 (Constraints)` | Bullets for technical / org / compatibility constraints. |
-| `## Key Decisions` | Seed any decisions already made (with today's date). |
-| `## TODO / Open Questions` | Items needing follow-up. |
-
-Do **not** fabricate requirements for a distribution-template repo: when initializing a
-real project, prefer concrete evidence; when nothing is known, leave the placeholder.
-
-### 4. Update CLAUDE.md Zone B (thin pointer only)
-
-First verify the 3-zone markers exist. Reuse the Step 1 detector output:
-`claude_md_markers.template_boundary` and `claude_md_markers.repo_boundary` must
-both be `true` (equivalently, `detect_stack.py` exits `0`, not `2`).
-If either is missing (exit code `2`), stop per `.claude/rules/claude-md-zones.md`
-(user runs `./scripts/update.sh`).
-
-Replace the content **between** the two markers with a **thin** identity + pointer (keep
-the marker lines and their ━ separators intact). The thick content lives in DESIGN.md —
-do **not** duplicate tech stack / requirements here. Use the Edit tool by anchoring on
-the full block between the two boundary box lines.
-
-```markdown
-## Repository Identity
-
-<!-- Managed by /init. Re-run /init to refresh. -->
-
-{One-line identity: what this project is, in a single sentence}
-
-Macro requirements & design live in **[.claude/docs/DESIGN.md](.claude/docs/DESIGN.md)** (要件定義書).
-Keep this section thin — a brief identity line + pointer. Thick content belongs in DESIGN.md.
-```
-
-### 5. Partial Update of AGENTS.md
-
-Mirror the same information into `AGENTS.md` so Codex sees it. Update only the top section (up to the first `---`) with this format:
-
-```markdown
-# Project Overview
-
-{User's answer}
-
-## Language Settings
-
-- **Thinking/Reasoning**: English
-- **Code**: {Based on analysis - English or Japanese}
-- **User Communication**: Japanese
-
-## Tech Stack
-
-- **Language**: {Detected language}
-- **Package Manager**: {Detected tools}
-- **Dev Tools**: {Detected tools}
-- **Main Libraries**: {Detected libraries}
-
-## Common Commands
+| DESIGN.md target | Input key | Row fields |
+|------------------|-----------|-----------|
+| `## 機能要件 (Functional Requirements)` | `requirements` | `id`, `requirement`, `priority`, `notes` |
+| `## 非機能要件 (Non-Functional Requirements)` | `nfr` | `category`, `requirement`, `metric` |
+| `## 技術選定 (Tech Stack & Rationale)` | `tech_choices` | `area`, `technology`, `rationale`, `alternatives` |
+| `## アーキテクチャ (Architecture)` Agent Roles table | `agent_roles` | `agent`, `role`, `responsibilities` |
+| `## Key Decisions` | `decisions` | `decision`, `rationale`, `alternatives` (date is stamped for you) |
+| Prose sections (背景・目的, スコープ, 制約, TODO / Open Questions) | `section_updates` | `heading`, `content` |
 
 ```bash
-{Detected commands}
+python3 .claude/skills/_shared/update_design.py --input .claude/logs/init-design-input.json
+# Read the preview at preview_file, then apply:
+python3 .claude/skills/_shared/update_design.py --input .claude/logs/init-design-input.json --apply --require-change
 ```
+
+Completion test — `result == "applied"` **and** (`decisions_appended > 0` or any
+`rows_appended` value `> 0` or `sections_updated` non-empty). `--require-change`
+turns a `no-op` into exit `2`, so an all-duplicate or all-empty input can never
+be reported as populated. Exit `2` also means the DESIGN.md structure is invalid;
+exit `3` means DESIGN.md changed underneath the writer — re-read and retry.
+
+Fill only claims supported by repository evidence or the user's answers, and do
+not fabricate requirements. Later incremental design changes go through
+`/design-tracker`, which uses the same writer.
+
+### 4. Update Repository Identity
+
+`## Repository Identity` is also written through its typed writer, which
+replaces only that section's body and aborts if `## Main Agent`,
+`## Progress Tracker`, or any working block would be lost. Write
+`.claude/logs/init-identity-input.json`:
+
+```json
+{"identity": "One sentence naming what this repository is."}
 ```
 
-### 6. Check Unnecessary Rules
+```bash
+python3 .claude/skills/_shared/append_state_block.py --type repository-identity \
+  --input .claude/logs/init-identity-input.json
+python3 .claude/skills/_shared/append_state_block.py --type repository-identity \
+  --input .claude/logs/init-identity-input.json --apply
+```
 
-Check rules in `.claude/rules/` and suggest removing unnecessary ones:
+The writer emits the `<!-- Managed by /init. Re-run /init to refresh. -->`
+marker and the `docs/DESIGN.md` pointer itself, so the input carries the identity
+sentence only. Do not add a heading, a `---`, or a second paragraph — the writer
+rejects them (exit `1`). Confirm `result: "applied"`, `structure_ok: true`, and
+`progress_tracker_preserved: true` (a real check: it aborts the write with exit
+`2` when an existing tracker line was deleted or rewritten).
 
-- Non-Python project → `dev-environment.md` (uv/ruff/ty) may not be needed
-- No-test project → `testing.md` may not be needed
+### 5. Re-verify and report
 
-### 7. Report Completion
+Re-run the closing gate, and report the JSON verdicts rather than a claim:
 
-Report to user (in Japanese):
+```bash
+python3 .claude/skills/init/detect_stack.py
+python3 .claude/skills/_shared/validate_doc.py --contract design-doc --file .claude/docs/DESIGN.md
+python3 .claude/skills/_shared/validate_doc.py --contract state-doc --file .claude/STATE.md
+```
 
-- Detected tech stack
-- Files updated (`.claude/docs/DESIGN.md`, `CLAUDE.md` Zone B, `AGENTS.md`)
-- Recommended rules to remove (if any)
+All three must exit `0` with `ok: true`. `detect_stack.py` confirms shared state
+and the native runtime directories are intact; the two contracts confirm the documents
+this skill just wrote still have the sections every other skill reads them for —
+`exit 2` names the missing section. Checking the two documents directly is
+stricter than inferring their health from the detector, which is why the detector
+alone is no longer the gate.
+
+Then review `.claude/rules/` for irrelevant stack-specific rules, but do
+not remove them without user approval. Report the evidence you used and the
+evidence you rejected, the two updated files, any `warnings`, and your
+recommendations, per `.claude/rules/language.md`.

@@ -3,7 +3,8 @@
 > **Role:** Macro-level requirements and design — *what* this project builds and *why*.
 > Written at `/init`, kept current by `/design-tracker` (also invoked from `/checkpointing`).
 >
-> **Document map:** Orchestrator contract → [CLAUDE.md](../../CLAUDE.md) ·
+> **Document map:** Shared rules → [rules/](../rules/) ·
+> Root contract → [AGENTS.md](../../AGENTS.md) · State → [STATE.md](../STATE.md) ·
 > Micro work progress (latest 5 checkpoints) → [PROGRESS.md](../../PROGRESS.md)
 
 ## 背景・目的 (Background & Purpose)
@@ -80,4 +81,6 @@
 
 ## TODO / Open Questions
 
-- [ ] 
+<!-- Open design questions and deferred decisions for this project. -->
+
+- 

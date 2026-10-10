@@ -25,7 +25,9 @@ PLAN_INDICATORS = [
 ]
 
 
-def should_suggest_codex_review(tool_input: dict, tool_output: str | None = None) -> tuple[bool, str]:
+def should_suggest_codex_review(
+    tool_input: dict, tool_output: str | None = None
+) -> tuple[bool, str]:
     """Determine if Codex review should be suggested after task completion."""
     subagent_type = tool_input.get("subagent_type", "").lower()
     description = tool_input.get("description", "").lower()
@@ -63,14 +65,11 @@ def main():
                 "hookSpecificOutput": {
                     "hookEventName": "PostToolUse",
                     "additionalContext": (
-                        f"[Codex Consultation Suggestion] {reason}. "
-                        "Claude owns and finalizes the plan. If it involves high-stakes "
-                        "design (architecture, data model, security-sensitive), consider "
-                        "a Codex design consultation before finalizing "
-                        "(lanes: .claude/rules/model-routing.md). "
-                        "**Recommended**: Use Task tool with subagent_type='general-purpose' "
+                        f"[Codex Review Suggestion] {reason}. "
+                        "Consider having Codex review this plan for potential improvements. "
+                        "**Recommended**: Use Task tool with subagent_type='general-purpose-opus' "
                         "to consult Codex and preserve main context."
-                    )
+                    ),
                 }
             }
             print(json.dumps(output))
