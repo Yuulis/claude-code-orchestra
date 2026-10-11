@@ -33,29 +33,65 @@ identity と設計ドキュメントが作成されます。
 
 ### 既存プロジェクト
 
-既存の Git リポジトリのルートで次を実行します。
+必要なもの: `git`、`bash`、Python 3.11 以上（フックとスキルのスクリプトが
+`datetime.UTC` と `tomllib` を使うため）。既存の Git リポジトリのルートで次を実行します。
 
 ```bash
 template_dir="$(mktemp -d)"
-git clone --depth 1 https://github.com/Yuulis/claude-code-orchestra.git "$template_dir"
+git clone -c core.autocrlf=false --depth 1 https://github.com/Yuulis/claude-code-orchestra.git "$template_dir"
 bash "$template_dir/scripts/install.sh" . && rm -rf "$template_dir"
 ```
 
-インストーラーは、`README.md`、`VERSION`、既存の `AGENTS.md` / `CLAUDE.md` の内容など、
-プロジェクト側のファイルを保持します。マージ後の内容は `.claude/STATE.md` に配置され、
-ルートの `AGENTS.md` 契約がインストールされます。既存の `CLAUDE.md` は
-`CLAUDE.md.pre-agents-md.bak` に退避されます。`CLAUDE.md` があると Claude Code は
-`AGENTS.md` を読み込まないためです。テンプレート側が管理するパスと衝突した場合は、
-変更を加える前にインストールが停止します。報告されたパスを確認したうえで `--force` を
-指定すると、それらを `.orchestra-backup-*/` にバックアップして置き換えます。
+`-c core.autocrlf=false` は、改行コードを変換する設定の git でもシェルスクリプトが
+動くようにするための指定です（リポジトリの `.gitattributes` でも LF を強制しています）。
+インストーラーのオプションは、確認プロンプトを省略する `--yes`、テンプレート管理のパスが
+既にある場合でも続行する `--force`、説明を表示する `--help` です。
 
-既存の `.claude/settings.json` が上書きされることはありません。手動でのマージが必要な場合、
-インストーラーは `.claude/settings.orchestra.json` を書き出します。必要な設定をマージし、
-この候補ファイルを削除してから Claude Code を起動してください。
+インストーラーの動作は次のとおりです。
 
-その後、Claude Code を起動して `/init` を実行します。
+- `README.md` や `VERSION` などのプロジェクト側のファイルには触れません。既存の
+  `AGENTS.md` / `CLAUDE.md` の内容は `.claude/STATE.md` に追記され、ルートの
+  `AGENTS.md` 契約がインストールされます。既存の `CLAUDE.md` は
+  `CLAUDE.md.pre-agents-md.bak` に退避されます。`CLAUDE.md` があると Claude Code は
+  `AGENTS.md` を読み込まないためです。インストーラーを再実行しても、契約が
+  `.claude/STATE.md` に再び追記されることはありません。
+- テンプレート管理のパス（独自の `.claude/skills/` や `.claude/agents/` など）が既にある
+  場合は、何も変更せずに停止します。`--force` を付けると、それらを
+  `.orchestra-backup-*/` にバックアップしたうえでテンプレートのエントリーをインストールし、
+  `.claude/{rules,skills,agents,hooks}` と `.agents/skills` にある独自のエントリーは
+  残して一覧表示します。置き換わるのは、テンプレートと同じ名前のエントリーだけです。
+  `.claude/commands/` など、それ以外の `.claude/` の内容には触れません。
+- 既存の `.claude/settings.json` と `.codex/config.toml` は上書きされません。
+  テンプレート版は `.claude/settings.orchestra.json` と `.codex/config.orchestra.toml`
+  として隣に書き出されます。必要な設定（フック、`statusLine`、`env`、権限、`model`、
+  `log-cli-tools.py` フック）をマージしてから候補ファイルを削除してください。
+  結果は `bash scripts/check.sh` で確認できます。
+- `.claude/orchestra-version`、`.claude/orchestra-source`（更新の取得元）、
+  `.claude/orchestra-manifest`（テンプレートが管理するエントリーの一覧）が書き出され、
+  `.gitignore` と `.gitattributes` に Orchestra 用のエントリーが追加されます。
+  インストールの変更と一緒にコミットしてください。
+
+最初のセッションの前に知っておくこと:
+
+- **移行された指示は自動では読み込まれません。** `.claude/STATE.md` はセッション開始時
+  ではなく、`context-loader` スキル経由で読まれます。毎回適用したいルールは、
+  `.claude/rules/` 配下の独自ファイル（例: `.claude/rules/project.md`）に移してください。
+  このディレクトリは Claude Code が自動で読み込み、テンプレートにないファイルは更新でも
+  保持されます。
+- **`.claude/settings.json` にはフォークの好みが入っています:** `"language": "japanese"`
+  と `env.EDITOR = "code --wait"` です。合わない場合は変更してください。
+- **`lint-on-save.py`** は、編集された `.py` ファイルごとに `uv run ruff` と
+  `uv run ty` を実行します。これらが入っていないプロジェクトでは、`uv run` が `.venv/` と
+  `uv.lock` を作成したうえで `Failed to spawn` を報告します。`uv add --dev ruff ty` を
+  実行するか、`.claude/settings.json` から `lint-on-save.py` のエントリーを削除してください。
+- **Codex は信頼済みのプロジェクトでしかプロジェクト設定を読みません。** リポジトリで一度
+  `codex` を起動して信頼してください。そうしないと `.codex/config.toml`（モデル、
+  サンドボックス、フック）は無視されます。
+
+その後、インストールを確認し、Claude Code を起動して `/init` を実行します。
 
 ```bash
+bash scripts/check.sh
 claude
 ```
 
@@ -77,8 +113,9 @@ codex login
 
 ### システムツール
 
-インストーラーとアップデーターには `git` と標準的な Unix シェルツールが必要です。
-テンプレートの更新には、さらに `rsync` が必要です。
+インストーラーとアップデーターには `git`、`bash`、標準的な Unix シェルツール
+（`cp`、`diff`、`find`）が必要です。`rsync` は不要です。フックとスキルのスクリプトには
+Python 3.11 以上が必要です。
 
 ### Codex Plugin for Claude Code（任意）
 
@@ -197,7 +234,10 @@ CLI エージェント契約は、すべてルートの `AGENTS.md` にありま
 │
 ├── .claude/                     # メインエージェントのランタイム（物理的な正本）
 │   ├── settings.json            # Claude Code 設定。hooks は .claude/hooks/ を指す
+│   ├── statusline.py            # settings.json が参照するステータスラインのスクリプト
 │   ├── orchestra-version        # 利用先プロジェクトにインストール済みの Orchestra バージョン
+│   ├── orchestra-source         # 利用先プロジェクトで install.sh が記録した更新の取得元
+│   ├── orchestra-manifest       # テンプレート管理のエントリー一覧（更新でプロジェクト側のものを保持するため）
 │   ├── STATE.md                 # メインエージェント、リポジトリ identity、作業状態
 │   ├── agents/                  # サブエージェント定義。Claude Code が自動で検出する
 │   ├── skills/                  # ワークフロースキルと決定的なヘルパー
@@ -439,37 +479,51 @@ Antigravity（`agy`）によるクロスモデルのセカンドオピニオン�
 テンプレートの更新を、ローカルのプロジェクトに安全に適用します。
 
 ```bash
-# 最新バージョンに更新
+# 記録された取得元のデフォルトブランチの最新版に更新
 ./scripts/update.sh
 
-# 特定のバージョンに更新
-./scripts/update.sh v0.2.0
+# 特定のブランチやタグに更新（このフォークはまだリリースタグを公開していません）
+./scripts/update.sh main
 
 # 確認プロンプトをスキップ
 ./scripts/update.sh --yes
+
+# 今回だけ別のリポジトリから取得
+ORCHESTRA_TEMPLATE_REPO=https://github.com/<you>/claude-code-orchestra.git ./scripts/update.sh
 ```
 
-v0.3.0 以前のアップデーターを使っているインストールを更新する場合は、初回の実行前にアップデーター自体を
-置き換えてください。古いプロセスが、テンプレートのバージョンをプロジェクト側のルート `VERSION` に書き込むのを防ぐためです。
+テンプレートの取得元は、`ORCHESTRA_TEMPLATE_REPO`、`.claude/orchestra-source`
+（インストーラーがテンプレートのクローンの `origin` から記録）、
+`https://github.com/Yuulis/claude-code-orchestra.git` の順に決まります。アップデーターは
+使用する取得元を表示し、記録された取得元がこのフォークでない場合は警告します。更新で
+インストールされるフックは Claude Code が実行するためです。
+
+**1.1.0 より前のインストール**（`.claude/orchestra-source` がないもの）のアップデーターは、
+上流リポジトリから取得し、テンプレートのディレクトリを丸ごと置き換えます。そのため、
+このフォークのファイルや独自のスキル・エージェントが削除されます。最初の更新の前に
+スクリプトを置き換えてください。
 
 ```bash
 template_dir="$(mktemp -d)"
-git clone --depth 1 https://github.com/Yuulis/claude-code-orchestra.git "$template_dir"
-cp "$template_dir/scripts/install.sh" "$template_dir/scripts/update.sh" scripts/
-chmod +x scripts/install.sh scripts/update.sh
+git clone -c core.autocrlf=false --depth 1 https://github.com/Yuulis/claude-code-orchestra.git "$template_dir"
+cp "$template_dir/scripts/install.sh" "$template_dir/scripts/update.sh" "$template_dir/scripts/check.sh" scripts/
+chmod +x scripts/install.sh scripts/update.sh scripts/check.sh
 rm -rf "$template_dir"
 ./scripts/update.sh
 ```
 
+古いアップデーターで既に上流に切り替わってしまったインストールも、同じ手順で修復できます。
+
 **動作の仕組み：**
 - `AGENTS.md`（ルート契約）は、テンプレート版に置き換えられます。v2.0 より前の `CLAUDE.md` シンボリックリンクは削除され、実体のある `CLAUDE.md` は、`AGENTS.md` を隠してしまわないよう `CLAUDE.md.pre-agents-md.bak` に退避されます。
 - `.claude/STATE.md`、プロジェクトの設計・調査、ログ、チェックポイントは保持されます。旧来の 2 ゾーン／3 ゾーン構成の `AGENTS.md` や `CLAUDE.md` の状態は、ブートストラップが置き換えられる前に `.claude/STATE.md` へ移行されます。
-- テンプレートが管理するランタイムのサブディレクトリだけが、アトミックに同期されます。`.agents/` と `.codex/` 配下の旧来のランタイムパスは削除されます。
-- 実体のある旧来の `.agents/{docs,logs,checkpoints}` のデータと `.agents/STATE.md` は `.claude/` に移動されます。衝突したものはバックアップされたうえで、不足しているファイルがマージされます。
+- テンプレート管理のディレクトリ（`.claude/{rules,skills,agents,hooks}`、`.agents/skills`）は、エントリー単位でマージされ、アトミックに入れ替えられます。テンプレートにあるエントリーは置き換えられます。テンプレートからなくなったエントリーは、`.claude/orchestra-manifest` にテンプレートがインストールしたと記録されている場合だけ削除されます。それ以外はプロジェクト側のものとして保持され、一覧表示されます。マニフェストのないインストールでは、不明なエントリーはすべて保持され、その旨が表示されます。
+- 更新で置き換え・削除されるもの（編集したテンプレートのファイル、テンプレートからなくなったエントリー、廃止されたパス）は、事前に `.orchestra-backup-update-*/` にコピーされます。
+- `.agents/` と `.codex/` 配下の旧来のランタイムパスは、バックアップ後に削除されます。実体のある旧来の `.agents/{docs,logs,checkpoints}` のデータと `.agents/STATE.md` は `.claude/` に移動されます。衝突したものはバックアップされたうえで、不足しているファイルがマージされます。
 - Claude の設定にある既知の旧来の `.agents/hooks/` と `.agents/logs/` への参照は `.claude/` に移行されます。それ以外の設定の差分は、引き続き手動での確認が必要です。
-- `.claude/settings.json` と `.codex/config.toml` は上書きされません。どちらも diff が表示されるだけで、手動でのマージが必要です
-- インストール済みのテンプレートバージョンは `.claude/orchestra-version` に保存されます。利用先プロジェクトのルート `VERSION` が変更されることはありません
-- 更新によって `scripts/update.sh` 自体が変更される場合（たとえば、新しいバージョンで `.claude/rules/` のようなテンプレートディレクトリが追加された場合）は、**`./scripts/update.sh` をもう一度実行してください**。1 回目の実行では、まだ古いスクリプトの同期リストが使われるためです。新しいスクリプトは、これに該当するときにリマインダーを表示します（v0.2.0 からの更新では表示されないため、v0.3.0 へアップグレードするときは 2 回実行してください）
+- `.claude/settings.json` と `.codex/config.toml` は上書きされません。どちらも diff が表示されるだけで、手動でのマージが必要です。設定が参照しているのに存在しないフックスクリプトは報告されます
+- インストール済みのテンプレートバージョンは `.claude/orchestra-version` に保存され、`旧 -> 新` の形で表示されます。利用先プロジェクトのルート `VERSION` が変更されることはありません
+- 更新によって `scripts/update.sh` 自体が変更される場合は、**`./scripts/update.sh` をもう一度実行してください**。1 回目の実行では、まだ古いスクリプトの処理が使われるためです。該当するときはアップデーターがリマインダーを表示します
 
 ### 技術スタック
 
@@ -529,7 +583,7 @@ uv run ruff check .
 
 ## フォーク独自の追加内容
 
-このフォーク（`https://github.com/Yuulis/claude-code-orchestra.git`）は、上流のテンプレートに次の内容を追加しています。
+このフォーク（`https://github.com/Yuulis/claude-code-orchestra.git`）は、上流のテンプレート [DeL-TaiseiOzaki/claude-code-orchestra](https://github.com/DeL-TaiseiOzaki/claude-code-orchestra) に次の内容を追加しています。
 
 - **Antigravity CLI（`agy`、Gemini）によるクロスモデルのセカンドオピニオン層**: スキルは `antigravity-system`、方針は `.claude/rules/antigravity-delegation.md`、呼び出しは `.claude/skills/_shared/cli_consult.py --cli antigravity` を使い、モデルは環境変数 `ANTIGRAVITY_MODEL=gemini-3.1-pro-high` で指定します。高難度の設計・計画の独立レビューや、対立する選択肢のタイブレークに使います。未インストールでもオーケストラは動作し、その場合のレビューは Codex のみにフォールバックします。
 
@@ -540,4 +594,5 @@ uv run ruff check .
 
 - **Codex のモデルレーン**（`.claude/rules/model-routing.md`）: デフォルトは `gpt-6.1-sol`（effort `high`）です。判断の余地が小さい機械的な大量処理には `gpt-6-luna` を使います。`gpt-6-astra` やより高い effort は、明示的に指定されたときだけ使います。
 - **`docs/manual/**` は日本語で記述**します（`.claude/rules/manual-docs.md`）。「仕様書をまとめて」「実装状況をまとめて」と依頼すると、`docs/manual/<テーマ名>/` に日本語の Markdown が作られます。
+- **既存プロジェクトへのインストールと更新**（1.1.0）: 更新は `.claude/orchestra-source` に記録された取得元（デフォルトはこのフォーク）から行います。テンプレートのディレクトリはバックアップを取りながらエントリー単位でマージされるため、プロジェクト独自のスキル・エージェント・ルール・フックは残ります。`.gitattributes` により、`core.autocrlf=true` の環境でもスクリプトは LF のままです。
 - 日本語版の README は、この `README.ja.md` です。上流の `README.md` は英語のまま保ち、アップストリームとの同期で衝突しないようにしています。

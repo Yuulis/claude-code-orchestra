@@ -33,30 +33,69 @@ identity and design document.
 
 ### Existing Project
 
-Run this from the root of an existing Git repository:
+Requirements: `git`, `bash`, and Python 3.11+ (the hooks and skill scripts use
+`datetime.UTC` and `tomllib`). Run this from the root of an existing Git
+repository:
 
 ```bash
 template_dir="$(mktemp -d)"
-git clone --depth 1 https://github.com/DeL-TaiseiOzaki/claude-code-orchestra.git "$template_dir"
+git clone -c core.autocrlf=false --depth 1 https://github.com/Yuulis/claude-code-orchestra.git "$template_dir"
 bash "$template_dir/scripts/install.sh" . && rm -rf "$template_dir"
 ```
 
-The installer preserves project-owned files, including `README.md`, `VERSION`, and
-existing `AGENTS.md` / `CLAUDE.md` content. It installs the merged content in
-`.claude/STATE.md` and installs the root `AGENTS.md` contract. An existing
-`CLAUDE.md` is moved aside to `CLAUDE.md.pre-agents-md.bak`, because Claude Code
-reads `AGENTS.md` only when no `CLAUDE.md` shadows it. Template-owned path
-conflicts stop the install before changes are made. After reviewing the reported
-paths, `--force` can be used to back them up under `.orchestra-backup-*/` and
-replace them.
+`-c core.autocrlf=false` keeps the shell scripts runnable on machines whose git
+converts line endings (the repository's `.gitattributes` forces LF as well).
+Installer options: `--yes` skips the confirmation prompt, `--force` proceeds
+when template-owned paths already exist, and `--help` lists both.
 
-An existing `.claude/settings.json` is never overwritten. When a manual merge is
-needed, the installer writes `.claude/settings.orchestra.json`; merge the required
-settings and delete the candidate before starting Claude Code.
+What the installer does:
 
-Then start Claude Code and run `/init` inside it:
+- Project files such as `README.md` and `VERSION` are left alone. Existing
+  `AGENTS.md` / `CLAUDE.md` content is appended to `.claude/STATE.md`, the root
+  `AGENTS.md` contract is installed, and an existing `CLAUDE.md` is moved aside
+  to `CLAUDE.md.pre-agents-md.bak`, because Claude Code reads `AGENTS.md` only
+  when no `CLAUDE.md` shadows it. Re-running the installer does not copy the
+  contract into `.claude/STATE.md` again.
+- If template-owned paths already exist (for example your own
+  `.claude/skills/` or `.claude/agents/`), the install stops before changing
+  anything. With `--force`, those paths are backed up under
+  `.orchestra-backup-*/`, the template's entries are installed, and your own
+  entries in `.claude/{rules,skills,agents,hooks}` and `.agents/skills` are kept
+  and listed. Only an entry with the same name as a template entry is replaced.
+  Other `.claude/` content such as `.claude/commands/` is not touched.
+- An existing `.claude/settings.json` or `.codex/config.toml` is never
+  overwritten. The template versions are written beside them as
+  `.claude/settings.orchestra.json` and `.codex/config.orchestra.toml`; merge
+  what you need (hooks, `statusLine`, `env`, permissions, `model`, the
+  `log-cli-tools.py` hook), then delete the candidates. `bash scripts/check.sh`
+  verifies the result.
+- `.claude/orchestra-version`, `.claude/orchestra-source` (where updates come
+  from) and `.claude/orchestra-manifest` (which entries the template owns) are
+  written, and `.gitignore` / `.gitattributes` gain Orchestra entries. Commit
+  them with the rest of the install.
+
+Things to know before the first session:
+
+- **Migrated instructions are not loaded automatically.** `.claude/STATE.md` is
+  read through the `context-loader` skill, not at session start. Move rules
+  that must apply in every session into a file of your own under
+  `.claude/rules/` (for example `.claude/rules/project.md`): Claude Code loads
+  that directory automatically, and updates keep files the template does not
+  ship.
+- **Fork preferences in `.claude/settings.json`:** `"language": "japanese"` and
+  `env.EDITOR = "code --wait"`. Change them if they do not fit you.
+- **`lint-on-save.py`** runs `uv run ruff` and `uv run ty` on every edited `.py`
+  file. In a project without them, `uv run` creates `.venv/` and `uv.lock` and
+  reports `Failed to spawn`. Run `uv add --dev ruff ty`, or remove the
+  `lint-on-save.py` entry from `.claude/settings.json`.
+- **Codex trusts project config only in trusted projects.** Run `codex` once in
+  the repository and trust it, otherwise `.codex/config.toml` (model, sandbox,
+  hook) is ignored.
+
+Then verify the install, start Claude Code, and run `/init` inside it:
 
 ```bash
+bash scripts/check.sh
 claude
 ```
 
@@ -78,8 +117,9 @@ codex login
 
 ### System Tools
 
-The installer and updater require `git` and standard Unix shell tools. Template
-updates additionally require `rsync`.
+The installer and updater require `git`, `bash`, and standard Unix shell tools
+(`cp`, `diff`, `find`); `rsync` is not needed. The hooks and skill scripts need
+Python 3.11 or newer.
 
 ### Codex Plugin for Claude Code (Optional)
 
@@ -200,7 +240,10 @@ in `.claude/skills/`.
 │
 ├── .claude/                     # Main agent runtime (physical source)
 │   ├── settings.json            # Claude Code settings; hooks point to .claude/hooks/
+│   ├── statusline.py            # Status line script referenced by settings.json
 │   ├── orchestra-version        # Installed Orchestra version in downstream projects
+│   ├── orchestra-source         # Update source recorded by install.sh in downstream projects
+│   ├── orchestra-manifest       # Template-owned entries, so updates keep project-owned ones
 │   ├── STATE.md                 # Main agent, repository identity, and working state
 │   ├── agents/                  # Subagent definitions, auto-discovered by Claude Code
 │   ├── skills/                  # Workflow skills and deterministic helpers
@@ -439,28 +482,41 @@ Scans the repository (git history, AGENTS.md, project rules, skill catalog, DESI
 Safely applies template updates to your local project.
 
 ```bash
-# Update to the latest version
+# Update to the latest default branch of the recorded source
 ./scripts/update.sh
 
-# Update to a specific version
-./scripts/update.sh v0.2.0
+# Update to a specific branch or tag (this fork publishes no release tags yet)
+./scripts/update.sh main
 
-# Skip confirmation prompt
+# Skip confirmation prompts
 ./scripts/update.sh --yes
+
+# Fetch from another repository for this run only
+ORCHESTRA_TEMPLATE_REPO=https://github.com/<you>/claude-code-orchestra.git ./scripts/update.sh
 ```
 
-When upgrading an installation that still uses an updater from v0.3.0 or earlier,
-replace the updater itself before the first run. This prevents the old process from
-writing its template version to a project-owned root `VERSION`:
+The template source is, in order: `ORCHESTRA_TEMPLATE_REPO`, then
+`.claude/orchestra-source` (recorded by the installer from the template clone's
+`origin`), then `https://github.com/Yuulis/claude-code-orchestra.git`. The
+updater prints the source it uses and warns when the recorded source is not this
+fork, because the update installs hooks that Claude Code executes.
+
+**Installs made before 1.1.0** (no `.claude/orchestra-source`) have an updater
+that fetches the upstream repository and replaces template directories
+wholesale, which deletes this fork's files and your own skills and agents.
+Replace the scripts before the first update:
 
 ```bash
 template_dir="$(mktemp -d)"
-git clone --depth 1 https://github.com/DeL-TaiseiOzaki/claude-code-orchestra.git "$template_dir"
-cp "$template_dir/scripts/install.sh" "$template_dir/scripts/update.sh" scripts/
-chmod +x scripts/install.sh scripts/update.sh
+git clone -c core.autocrlf=false --depth 1 https://github.com/Yuulis/claude-code-orchestra.git "$template_dir"
+cp "$template_dir/scripts/install.sh" "$template_dir/scripts/update.sh" "$template_dir/scripts/check.sh" scripts/
+chmod +x scripts/install.sh scripts/update.sh scripts/check.sh
 rm -rf "$template_dir"
 ./scripts/update.sh
 ```
+
+The same steps repair an install that an old updater already switched to
+upstream.
 
 **How it works:**
 - `AGENTS.md` (the root contract) is replaced with the template version. A
@@ -469,20 +525,27 @@ rm -rf "$template_dir"
 - `.claude/STATE.md`, project design/research, logs, and checkpoints are
   preserved. Legacy 2/3-zone `AGENTS.md` or `CLAUDE.md` state is migrated into
   `.claude/STATE.md` before the bootstrap is replaced.
-- Only template-owned runtime subdirectories are atomically synced. Legacy
-  runtime paths under `.agents/` and `.codex/` are removed.
-- Real legacy `.agents/{docs,logs,checkpoints}` data and `.agents/STATE.md` are
-  moved to `.claude/`; collisions are backed up before missing files are merged.
+- Template-owned directories (`.claude/{rules,skills,agents,hooks}`,
+  `.agents/skills`) are merged entry by entry and swapped in atomically.
+  Entries the template ships are replaced. Entries it no longer ships are
+  removed only if `.claude/orchestra-manifest` says the template installed
+  them. Everything else is yours: it is kept and listed as project-owned.
+  Installs without a manifest keep every unknown entry and say so.
+- Everything the update replaces or removes — template files you edited,
+  dropped template entries, deprecated paths — is copied to
+  `.orchestra-backup-update-*/` first.
+- Legacy runtime paths under `.agents/` and `.codex/` are removed (after the
+  backup). Real legacy `.agents/{docs,logs,checkpoints}` data and
+  `.agents/STATE.md` are moved to `.claude/`; collisions are backed up before
+  missing files are merged.
 - Known legacy `.agents/hooks/` and `.agents/logs/` references in Claude
   settings are migrated to `.claude/`; other settings differences still require
   manual review.
-- `.claude/settings.json` and `.codex/config.toml` are never overwritten; both only show a diff (manual merge required)
-- The installed template version is stored in `.claude/orchestra-version`; a downstream project's root `VERSION` is never modified
-- If the update modifies `scripts/update.sh` itself (e.g. a new version adds
-  template directories such as `.claude/rules/`), **run `./scripts/update.sh` a second
-  time** — the first run still uses the old script's sync list. Newer scripts
-  print a reminder when this applies (updating from v0.2.0 does not, so run
-  twice when upgrading to v0.3.0)
+- `.claude/settings.json` and `.codex/config.toml` are never overwritten; both only show a diff (manual merge required). Hook scripts that the settings reference but that no longer exist are reported.
+- The installed template version is stored in `.claude/orchestra-version` and printed as `old -> new`; a downstream project's root `VERSION` is never modified
+- If the update modifies `scripts/update.sh` itself, **run `./scripts/update.sh`
+  a second time** — the first run still uses the old script's logic. The
+  updater prints a reminder when this applies.
 
 ### Tech Stack
 
@@ -543,8 +606,9 @@ user-facing reply reads and how long it runs.
 
 ## Fork additions
 
-This fork (`git@github.com:Yuulis/claude-code-orchestra.git`) adds the following on top of upstream. A Japanese translation of this README lives in [README.ja.md](README.ja.md).
+This fork (`https://github.com/Yuulis/claude-code-orchestra.git`) adds the following on top of upstream, [DeL-TaiseiOzaki/claude-code-orchestra](https://github.com/DeL-TaiseiOzaki/claude-code-orchestra). A Japanese translation of this README lives in [README.ja.md](README.ja.md).
 
 - **Antigravity CLI (`agy`, Gemini) as a cross-model second-opinion layer**: skill `antigravity-system`, rule `.claude/rules/antigravity-delegation.md`, invoked via `.claude/skills/_shared/cli_consult.py --cli antigravity`, model env `ANTIGRAVITY_MODEL=gemini-3.1-pro-high`.
 - **Codex model lanes** (`.claude/rules/model-routing.md`): default `gpt-6.1-sol` at effort `high`; `gpt-6-luna` for mechanical bulk work; `gpt-6-astra` / higher effort only when explicitly specified.
 - **`docs/manual/**` is written in Japanese** (`.claude/rules/manual-docs.md`).
+- **Install and update for existing projects** (1.1.0): updates come from the source recorded in `.claude/orchestra-source` (default: this fork), template directories are merged entry by entry with backups so project-owned skills, agents, rules, and hooks survive, and `.gitattributes` keeps scripts LF under `core.autocrlf=true`.
