@@ -124,6 +124,9 @@ def test_install_adds_complete_template_without_overwriting_project_version(
     assert not (target / ".claude/CLAUDE.md").exists()
     assert {path.name for path in (target / ".claude").iterdir()} == {
         "orchestra-version",
+        "orchestra-source",
+        "orchestra-manifest",
+        "statusline.py",
         "settings.json",
         "STATE.md",
         "agents",
@@ -149,6 +152,8 @@ def test_install_adds_complete_template_without_overwriting_project_version(
     assert ".claude/logs/" in gitignore
     assert ".claude/checkpoints/" in gitignore
     assert ".orchestra-backup-*/" in gitignore
+    gitattributes = (target / ".gitattributes").read_text(encoding="utf-8")
+    assert "scripts/update.sh text eol=lf" in gitattributes
 
 
 def test_install_preserves_existing_claude_md_in_shared_state(tmp_path: Path) -> None:
@@ -226,14 +231,18 @@ def test_install_refuses_template_owned_path_conflicts_by_default(
     assert not (target / "AGENTS.md").exists()
 
 
-def test_force_install_backs_up_conflicts_before_replacing_them(
+def test_force_install_backs_up_conflicts_before_merging_them(
     tmp_path: Path,
 ) -> None:
+    """--force backs the whole directory up, then merges entry by entry: a
+    template rule of the same name is replaced, the project's own rule stays."""
     target = tmp_path / "project"
     init_git_repo(target)
     custom_file = target / ".claude/rules/custom.md"
     custom_file.parent.mkdir(parents=True)
     custom_file.write_text("custom contract\n", encoding="utf-8")
+    shadowing_file = target / ".claude/rules/tiers.md"
+    shadowing_file.write_text("local tiers\n", encoding="utf-8")
 
     result = run_install(target, "--force")
 
@@ -243,8 +252,15 @@ def test_force_install_backs_up_conflicts_before_replacing_them(
     assert (backups[0] / ".claude/rules/custom.md").read_text(
         encoding="utf-8"
     ) == "custom contract\n"
+    assert (backups[0] / ".claude/rules/tiers.md").read_text(
+        encoding="utf-8"
+    ) == "local tiers\n"
     assert (target / ".claude/docs/INDEX.md").is_file()
-    assert not (target / ".claude/rules/custom.md").exists()
+    assert custom_file.read_text(encoding="utf-8") == "custom contract\n"
+    assert shadowing_file.read_text(encoding="utf-8") == (
+        REPO_ROOT / ".claude/rules/tiers.md"
+    ).read_text(encoding="utf-8")
+    assert ".claude/rules/custom.md" in result.stdout
 
 
 def test_install_refuses_to_destroy_existing_native_subagents_and_skills(
@@ -290,6 +306,7 @@ def test_force_install_backs_up_existing_native_subagents_and_skills(
     assert (target / ".claude/agents").is_dir()
     assert not (target / ".claude/agents").is_symlink()
     assert (target / ".claude/agents/general-purpose-opus.md").is_file()
+    assert existing_agent.read_text(encoding="utf-8") == "user's own subagent\n"
 
 
 def test_install_retires_a_legacy_claude_md_symlink(tmp_path: Path) -> None:
@@ -514,9 +531,11 @@ def test_update_removes_legacy_agents_runtime_paths(tmp_path: Path) -> None:
     codex_skills = target / ".codex/skills"
     codex_skills.mkdir()
     (codex_skills / "legacy.md").write_text("legacy\n", encoding="utf-8")
-    # Pre-2.0 .agents/skills/ held real copies; today it is a template-owned
-    # directory of links, so a stale copy is replaced rather than kept.
-    stale_skill_copy = target / ".agents/skills/legacy-copy"
+    # Pre-2.0 .agents/skills/ held real copies of the template skills; today
+    # it is a directory of links, so a stale copy is removed rather than kept
+    # (it is backed up first). team-execute is a template skill that is not
+    # linked for Codex, so nothing replaces the copy.
+    stale_skill_copy = target / ".agents/skills/team-execute"
     stale_skill_copy.mkdir()
     (stale_skill_copy / "SKILL.md").write_text("stale\n", encoding="utf-8")
     legacy_project_files = {

@@ -9,6 +9,17 @@ ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
 PASS=0
 FAIL=0
+# Written by scripts/install.sh and scripts/update.sh in an installed project.
+# It lists the template-owned entries; anything else under .claude/agents/ or
+# .claude/skills/ is the project's own and is not held to the template catalog.
+MANIFEST="${ROOT}/.claude/orchestra-manifest"
+
+# Succeeds for template content: everything in the template repository itself
+# (no manifest), and only manifest-listed entries in an installed project.
+is_template_entry() {
+    [[ -f "${MANIFEST}" ]] || return 0
+    grep -Fqx -- "$1" "${MANIFEST}"
+}
 
 check() {
     local name="$1"
@@ -208,6 +219,7 @@ check_root_contract() {
     for definition in "${ROOT}"/.claude/agents/*.md; do
         local agent_name
         agent_name="$(basename "${definition}" .md)"
+        is_template_entry ".claude/agents/${agent_name}.md" || continue
         grep -Fq "\`${agent_name}\`" "${contract}" || {
             echo "  Missing agent in AGENTS.md catalog: ${agent_name}"
             ok=false
@@ -216,6 +228,7 @@ check_root_contract() {
     for definition in "${ROOT}"/.claude/skills/*/SKILL.md; do
         local skill_name
         skill_name="$(basename "$(dirname "${definition}")")"
+        is_template_entry ".claude/skills/${skill_name}" || continue
         grep -Fq "\`${skill_name}\`" "${contract}" || {
             echo "  Missing skill in AGENTS.md catalog: ${skill_name}"
             ok=false
@@ -351,46 +364,33 @@ check_native_boundaries() {
         fi
     done
 
+    # Known leftovers of earlier template layouts. Only these are rejected:
+    # .claude/, .agents/ and .codex/ are shared with the project and the CLIs
+    # themselves (.claude/commands/, .claude/output-styles/, .codex/prompts/,
+    # ...), so an entry the template does not know is the project's business.
     # Shared runtime content must not be duplicated back into the subagent
-    # schema directories.
-    local forbidden_path
-    for forbidden_path in \
-        .agents/rules .agents/agents .agents/hooks \
+    # schema directories, and template files that skills replaced must go.
+    local legacy_path
+    for legacy_path in \
+        .agents/rules .agents/agents .agents/hooks .agents/workflows \
         .agents/docs .agents/logs .agents/checkpoints .agents/STATE.md \
-        .codex/skills; do
-        if [[ -e "${ROOT}/${forbidden_path}" || -L "${ROOT}/${forbidden_path}" ]]; then
-            echo "  Runtime content duplicated into a subagent schema directory: ${forbidden_path}"
+        .agents/INDEX.md .agents/tiers.md .agents/change_main.md .agents/check.sh \
+        .codex/skills .codex/commands \
+        .codex/prompts/analyze.md .codex/prompts/consult.md \
+        .codex/prompts/review-architecture.md .codex/prompts/update-design.md \
+        .claude/commands/research-lib.md .claude/commands/simplify.md \
+        .claude/commands/update-lib-docs.md; do
+        if [[ -e "${ROOT}/${legacy_path}" || -L "${ROOT}/${legacy_path}" ]]; then
+            echo "  Legacy template path from an earlier layout: ${legacy_path}"
             ok=false
         fi
     done
 
-    local native_entry
-    while IFS= read -r native_entry; do
-        case "${native_entry}" in
-            settings.json|settings.local.json|settings.orchestra.json|orchestra-version|statusline.py) ;;
-            agents|skills|rules|hooks|docs|logs|checkpoints|STATE.md) ;;
-            *) echo "  Unexpected .claude entry: ${native_entry}"; ok=false ;;
-        esac
-    done < <(find "${ROOT}/.claude" -mindepth 1 -maxdepth 1 -printf '%f\n' | sort)
-    while IFS= read -r native_entry; do
-        case "${native_entry}" in
-            config.toml|config.orchestra.toml|AGENTS.md) ;;
-            *) echo "  Unexpected .codex entry: ${native_entry}"; ok=false ;;
-        esac
-    done < <(find "${ROOT}/.codex" -mindepth 1 -maxdepth 1 -printf '%f\n' | sort)
-    # .agents/ holds the CLI-subagent contract Antigravity loads, plus
-    # skills/, where Codex discovers project skills. Shared policy lives under
-    # .claude/ and is referenced by path.
-    while IFS= read -r native_entry; do
-        case "${native_entry}" in
-            AGENTS.md|skills) ;;
-            *) echo "  Unexpected .agents entry: ${native_entry}"; ok=false ;;
-        esac
-    done < <(find "${ROOT}/.agents" -mindepth 1 -maxdepth 1 -printf '%f\n' | sort)
-    # .agents/skills/ is a real directory of relative links, one per
-    # runtime-neutral skill, each resolving to the canonical .claude/skills/
-    # copy -- never a copy, and never a Claude-lead workflow that calls the
-    # Task tool, which Codex cannot run.
+    # .agents/skills/ is where Codex discovers project skills. Every template
+    # entry there is a relative link to the canonical .claude/skills/ copy --
+    # never a copy, and never a Claude-lead workflow that calls the Task tool,
+    # which Codex cannot run. A project may add its own Codex skills: a real
+    # directory is fine unless it shadows a canonical skill of the same name.
     local skills_dir="${ROOT}/.agents/skills"
     if [[ ! -d "${skills_dir}" || -L "${skills_dir}" ]]; then
         echo "  .agents/skills must be a real directory of skill links"
@@ -400,12 +400,20 @@ check_native_boundaries() {
         for skill_link in "${skills_dir}"/* "${skills_dir}"/.[!.]*; do
             [[ -e "${skill_link}" || -L "${skill_link}" ]] || continue
             skill_name="$(basename "${skill_link}")"
-            if [[ ! -L "${skill_link}" ||
-                "$(readlink "${skill_link}")" != "../../.claude/skills/${skill_name}" ||
-                ! -f "${skill_link}/SKILL.md" ]]; then
-                echo "  .agents/skills/${skill_name} must link to ../../.claude/skills/${skill_name}"
+            if [[ -L "${skill_link}" ]]; then
+                if [[ "$(readlink "${skill_link}")" != "../../.claude/skills/${skill_name}" ||
+                    ! -f "${skill_link}/SKILL.md" ]]; then
+                    echo "  .agents/skills/${skill_name} must link to ../../.claude/skills/${skill_name}"
+                    ok=false
+                    continue
+                fi
+            elif [[ -e "${ROOT}/.claude/skills/${skill_name}" ]]; then
+                echo "  .agents/skills/${skill_name} is a copy; link it to ../../.claude/skills/${skill_name}"
                 ok=false
-            elif grep -Eq 'subagent_type|Task\(' "${skill_link}/SKILL.md"; then
+                continue
+            fi
+            if [[ -f "${skill_link}/SKILL.md" ]] &&
+                grep -Eq 'subagent_type|Task\(' "${skill_link}/SKILL.md"; then
                 echo "  .agents/skills/${skill_name} is a Claude-lead workflow (Task tool)"
                 ok=false
             fi
@@ -432,6 +440,25 @@ check_native_boundaries() {
     ${ok}
 }
 check "Native runtime boundaries" check_native_boundaries
+
+# --------------------------------------------------------------------------
+# 7b) Every script Claude settings run exists: a hook pointing at a removed
+#     file fails on every event it is registered for.
+# --------------------------------------------------------------------------
+check_settings_references() {
+    local settings="${ROOT}/.claude/settings.json"
+    [[ -f "${settings}" ]] || return 0
+    local ok=true reference
+    while IFS= read -r reference; do
+        [[ -z "${reference}" ]] && continue
+        if [[ ! -e "${ROOT}/${reference}" ]]; then
+            echo "  .claude/settings.json references a missing file: ${reference}"
+            ok=false
+        fi
+    done < <(grep -oE '\.claude/[A-Za-z0-9_./-]+\.(py|sh)' "${settings}" | sort -u || true)
+    ${ok}
+}
+check "Settings reference existing scripts" check_settings_references
 
 # --------------------------------------------------------------------------
 # 8) Bundled skill scripts and the docs that invoke them stay in sync:
@@ -475,6 +502,9 @@ check_skill_scripts() {
     while IFS= read -r script; do
         [[ -z "${script}" ]] && continue
         local rel="${script#"${ROOT}/"}"
+        local skill_entry
+        skill_entry="$(cut -d/ -f1-3 <<< "${rel}")"
+        is_template_entry "${skill_entry}" || continue
         if ! grep -rqF "${doc_scope[@]}" "$(basename "${rel}")" \
             "${ROOT}/.claude" "${ROOT}/.agents" "${ROOT}/README.md" 2>/dev/null; then
             echo "  Bundled script is not documented in any markdown: ${rel}"
