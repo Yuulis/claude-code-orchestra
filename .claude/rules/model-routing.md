@@ -36,8 +36,10 @@ When the user starts `codex` interactively, Codex is the main agent (root
   `fable-advisor` in this mode, a stuck task goes back to the user.
 
 Whoever calls the wrapper, the callee is an executor: `codex_consult.py`
-prefixes the prompt with `[orchestra-role: executor]`, sets
-`ORCHESTRA_ROLE=executor`, and refuses to run inside an executor.
+prefixes the prompt with `[orchestra-role: executor]` and sets
+`ORCHESTRA_ROLE=executor`. Luna therefore cannot delegate further: a PreToolUse
+hook denies sub-agent tools and agent-CLI commands, both wrappers refuse to run,
+and a nested `codex` / `claude` cannot start (details: `.codex/AGENTS.md`).
 
 ## Effort Policy
 

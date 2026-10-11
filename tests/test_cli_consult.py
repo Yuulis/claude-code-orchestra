@@ -65,6 +65,9 @@ def run_cli_consult(
     env = os.environ.copy()
     # The ambient model pin must not leak into tests that assert argv.
     env.pop("ANTIGRAVITY_MODEL", None)
+    # The suite may run inside a delegated executor, where every call below
+    # would be a refused nested delegation; tests set a role only on purpose.
+    env.pop("ORCHESTRA_ROLE", None)
     env.update(extra_env or {})
     if empty_path:
         empty_bin = tmp_path / "empty_bin"
@@ -697,3 +700,37 @@ def test_success_reports_artifacts_and_a_verified_response(tmp_path: Path) -> No
     for relative in payload["artifacts"]:
         assert not Path(relative).is_absolute()
         assert (tmp_path / relative).is_file()
+
+
+def test_executor_cannot_delegate_to_a_peer_cli(tmp_path: Path) -> None:
+    """A Codex started through codex_consult.py carries ORCHESTRA_ROLE=executor
+    into every command it runs; it must not reach Claude Code or Antigravity
+    either. The refusal happens before the callee or any log file exists."""
+    prompt_file = write_prompt(tmp_path, "Objective: re-delegate this")
+
+    result = run_cli_consult(
+        tmp_path,
+        ["--cli", "antigravity", "--prompt-file", str(prompt_file)],
+        empty_path=True,
+        extra_env={"ORCHESTRA_ROLE": "executor"},
+    )
+
+    assert result.returncode == 1
+    payload = json.loads(result.stdout)
+    assert payload["ok"] is False
+    assert "nested delegation" in payload["error"]
+    assert not (tmp_path / ".claude" / "logs").exists()
+
+
+def test_main_role_may_call_a_peer_cli(tmp_path: Path) -> None:
+    prompt_file = write_prompt(tmp_path, "Objective: second opinion")
+
+    result = run_cli_consult(
+        tmp_path,
+        ["--cli", "antigravity", "--prompt-file", str(prompt_file)],
+        empty_path=True,
+        extra_env={"ORCHESTRA_ROLE": "main"},
+    )
+
+    # Reaches the PATH lookup (exit 2: agy not installed), i.e. not refused.
+    assert result.returncode == 2

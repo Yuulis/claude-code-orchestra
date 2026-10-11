@@ -60,6 +60,7 @@ import argparse
 import json
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -69,6 +70,7 @@ from pathlib import Path
 from typing import NoReturn
 
 import edit_provenance
+from orchestra_role import ROLE_ENV, ROLE_EXECUTOR, role_refusal
 
 PROJECT_ROOT = Path(__file__).parent.parent.parent.parent
 
@@ -90,7 +92,14 @@ INSTALL_HINT = "install with `npm install -g @openai/codex@latest`"
 # single visible statement of write access, not something a config override can
 # quietly contradict.
 CONFIG_KEY_RE = re.compile(r"^[a-z0-9_]+(\.[a-z0-9_]+)*$")
-CONFIG_KEY_DENYLIST = ("sandbox", "approval")
+CONFIG_KEY_DENYLIST = (
+    "sandbox",
+    "approval",
+    # The executor guard below is the wrapper's own fixed configuration; a
+    # caller override must not be able to switch it off.
+    "hooks",
+    "shell_environment_policy",
+)
 
 # Second-granularity timestamps collide: two consults started in the same second
 # with the same --label (and `consult` is the default) used to write the same
@@ -103,10 +112,6 @@ MAX_LOG_ATTEMPTS = 100
 # machine-checkable signal -- it is what lets this wrapper refuse a nested call
 # -- and the preamble is the model-visible one, because a model cannot see its
 # environment without running a command.
-ROLE_ENV = "ORCHESTRA_ROLE"
-ROLE_EXECUTOR = "executor"
-ROLE_MAIN = "main"
-KNOWN_ROLES = ("", ROLE_MAIN, ROLE_EXECUTOR)
 EXECUTOR_PREAMBLE = (
     "[orchestra-role: executor]\n"
     "You were started by another agent through codex_consult.py, so you are a "
@@ -263,32 +268,43 @@ def validate_config_overrides(overrides: list[str]) -> str | None:
     return None
 
 
-def role_refusal(environ: dict[str, str]) -> str | None:
-    """Return why this wrapper must not run in *environ*, or None if it may.
-
-    An executor that calls the wrapper again would turn a leaf into a second
-    orchestrator, so that is refused before any log file or Codex process
-    exists. An unrecognised value is refused too: guessing a role is how a
-    typo would silently disable the guard.
-    """
-    role = environ.get(ROLE_ENV, "")
-    if role not in KNOWN_ROLES:
-        return (
-            f"{ROLE_ENV}={role!r} is not a known role "
-            f"(expected {ROLE_MAIN!r} or {ROLE_EXECUTOR!r}, or unset)"
-        )
-    if role == ROLE_EXECUTOR:
-        return (
-            f"refusing nested delegation: {ROLE_ENV}={ROLE_EXECUTOR} means this "
-            "process is already a delegated executor; do the task yourself and "
-            "report back to your caller"
-        )
-    return None
-
-
 def executor_env(environ: dict[str, str]) -> dict[str, str]:
     """Child environment: the caller's, with the executor role stamped on."""
     return {**environ, ROLE_ENV: ROLE_EXECUTOR}
+
+
+# Enforcement for the executor, verified against codex-cli 0.162 (the prompt
+# preamble alone is only a request):
+# - `.claude/hooks/codex-executor-guard.py` is registered as a PreToolUse hook
+#   for every tool through a session `--config` (so it applies whatever --cwd
+#   is). Under ORCHESTRA_ROLE=executor it denies every collaboration tool
+#   (spawn_agent, ...) and shell commands that start codex / claude / agy, run
+#   a wrapper, or tamper with the role. `codex exec` runs no hook that has not
+#   been trusted and cannot prompt for trust, so the wrapper also passes
+#   --dangerously-bypass-hook-trust for this one run; that trusts this
+#   repository's own hooks, which is no more than running this script already
+#   does. (No config key removes the collaboration tools in 0.162:
+#   features.multi_agent=false, agents.max_depth=0 and
+#   agents.max_concurrent_threads_per_session=1 all still spawn.)
+# - shell_environment_policy pins the role into every command the executor
+#   runs and points CODEX_HOME and CLAUDE_CONFIG_DIR at a path that cannot
+#   exist, so a nested codex or claude fails before it starts even when the
+#   guard cannot see it (e.g. inside a script file the executor wrote).
+UNUSABLE_HOME = "/nonexistent/orchestra-executor"
+GUARD_HOOK = PROJECT_ROOT / ".claude" / "hooks" / "codex-executor-guard.py"
+GUARD_COMMAND = f"python3 {shlex.quote(str(GUARD_HOOK.resolve()))}"
+EXECUTOR_CODEX_ARGS = (
+    "--dangerously-bypass-hook-trust",
+    "--config",
+    'hooks.PreToolUse=[{matcher=".*",hooks=[{type="command",'
+    f"command={json.dumps(GUARD_COMMAND)},timeout=10}}]}}]",
+    "--config",
+    "shell_environment_policy.set={"
+    f'{ROLE_ENV}="{ROLE_EXECUTOR}",'
+    f'CODEX_HOME="{UNUSABLE_HOME}/codex",'
+    f'CLAUDE_CONFIG_DIR="{UNUSABLE_HOME}/claude"'
+    "}",
+)
 
 
 def _not_found_report(
@@ -504,6 +520,8 @@ def main() -> int:  # noqa: C901 — single-function CLI entry point
         argv.append("--skip-git-repo-check")
     for override in args.config:
         argv.extend(["--config", override])
+    # The wrapper's own overrides come last, so they win over a caller's.
+    argv.extend(EXECUTOR_CODEX_ARGS)
     # The prompt is always the final argv element and is never shell-expanded.
     argv.append(prompt)
 

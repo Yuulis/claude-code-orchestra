@@ -65,6 +65,7 @@ from pathlib import Path
 from typing import NoReturn
 
 import edit_provenance
+from orchestra_role import role_refusal
 
 PROJECT_ROOT = Path(__file__).parent.parent.parent.parent
 
@@ -423,6 +424,12 @@ def main() -> int:  # noqa: C901 — single-function CLI entry point
     # --- Validate --cwd up front so a bad path is never misread as "CLI missing" ---
     if args.cwd is not None and not args.cwd.is_dir():
         _emit({"ok": False, "error": f"--cwd is not a directory: {args.cwd}"})
+        return EXIT_BAD_ARGS
+
+    # --- An executor never delegates again (orchestra_role.role_refusal) ---
+    refusal = role_refusal(dict(os.environ))
+    if refusal:
+        _emit({"ok": False, "cli": args.cli, "error": refusal})
         return EXIT_BAD_ARGS
 
     # --- Reject flags the chosen callee has no equivalent for ---

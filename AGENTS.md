@@ -38,7 +38,9 @@ started, never from `.claude/STATE.md`:
 
 - **Executor** if the prompt opens with `[orchestra-role: executor]`, or the
   environment has `ORCHESTRA_ROLE=executor` (both set by `codex_consult.py`) or
-  `CLAUDECODE=1`. Do the task yourself; never delegate it.
+  `CLAUDECODE=1`. Do the task yourself; never delegate it. Under
+  `codex_consult.py` this is enforced: a PreToolUse hook denies sub-agent tools
+  and agent-CLI commands, and the wrappers refuse to run.
 - **Main** otherwise -- an interactive `codex` the user started. Read
   `.codex/AGENTS.md` before routing: its Codex-only routes replace every Claude
   route in this file. You (`gpt-6.1-sol`) keep the judgment work; bulk

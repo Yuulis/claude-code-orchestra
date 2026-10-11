@@ -379,8 +379,14 @@ def test_config_overrides_are_forwarded_in_order(tmp_path: Path) -> None:
 
     assert result.returncode == 0, result.stderr
     argv = json.loads(argv_log.read_text(encoding="utf-8"))
-    assert argv.count("--config") == 2
-    assert argv[argv.index("--config") + 1] == "model_reasoning_effort=low"
+    # The caller's two overrides, in order, then the wrapper's own executor
+    # override, which comes last so a caller cannot override it.
+    assert argv.count("--config") == 4
+    first = argv.index("--config")
+    assert argv[first + 1] == "model_reasoning_effort=low"
+    assert argv[first + 3] == "hide_agent_reasoning=true"
+    assert argv[first + 6].startswith("hooks.PreToolUse=")
+    assert argv[first + 8].startswith("shell_environment_policy.set=")
     assert argv[-1] == sent("Objective: anything")
 
 
@@ -811,3 +817,47 @@ def test_help_still_works_inside_an_executor(tmp_path: Path) -> None:
 
     assert result.returncode == 0
     assert "--prompt-file" in result.stdout
+
+
+def test_executor_guard_overrides_are_passed_last(tmp_path: Path) -> None:
+    """Enforcement, not just a request: the hook-trust bypass activates the
+    repository's PreToolUse executor guard in `codex exec`, and the shell
+    policy pins the role and makes a nested codex/claude unable to start."""
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    argv_log = tmp_path / "argv.json"
+    write_fake_codex(bin_dir, stdout="ok\n", argv_log=argv_log)
+    prompt_file = write_prompt(tmp_path, "Objective: anything")
+
+    result = run_codex_consult(
+        tmp_path, ["--prompt-file", str(prompt_file)], path_prefix=bin_dir
+    )
+
+    assert result.returncode == 0, result.stdout
+    argv = json.loads(argv_log.read_text(encoding="utf-8"))
+    assert "--dangerously-bypass-hook-trust" in argv
+    hooks_override = argv[argv.index("--dangerously-bypass-hook-trust") + 2]
+    assert hooks_override.startswith('hooks.PreToolUse=[{matcher=".*"')
+    guard = REPO_ROOT / ".claude" / "hooks" / "codex-executor-guard.py"
+    assert guard.is_file()
+    assert str(guard.resolve()) in hooks_override
+    policy = argv[-2]
+    assert argv[-3] == "--config"
+    assert policy.startswith("shell_environment_policy.set={")
+    assert 'ORCHESTRA_ROLE="executor"' in policy
+    assert 'CODEX_HOME="/nonexistent/' in policy
+    assert 'CLAUDE_CONFIG_DIR="/nonexistent/' in policy
+    assert argv[-1] == sent("Objective: anything")
+
+
+def test_caller_cannot_override_the_executor_guard(tmp_path: Path) -> None:
+    prompt_file = write_prompt(tmp_path, "Objective: anything")
+    for override in (
+        "hooks.state=x",
+        "shell_environment_policy.inherit=none",
+    ):
+        result = run_codex_consult(
+            tmp_path, ["--prompt-file", str(prompt_file), "--config", override]
+        )
+        assert result.returncode == 1, override
+        assert "refused" in json.loads(result.stdout)["error"]

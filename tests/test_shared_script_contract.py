@@ -323,6 +323,7 @@ SUCCESS_CASES: dict[Path, tuple[Callable[[Path], None], list[str]]] = {
     SKILLS_DIR / "catchup" / "collect_repo_state.py": (_prep_git_repo, []),
     SKILLS_DIR / "troubleshoot" / "repro.py": (_prep_nothing, ["true"]),
     SKILLS_DIR / "update-lib-docs" / "lib_inventory.py": (_prep_nothing, []),
+    SKILLS_DIR / "_shared" / "orchestra_role.py": (_prep_nothing, []),
 }
 
 SUCCESS_EXEMPT: dict[Path, str] = {

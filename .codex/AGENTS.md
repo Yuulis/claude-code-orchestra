@@ -17,8 +17,9 @@ you hold; `.claude/STATE.md` `## Main Agent` only names the default runtime.
 | Any other launch from Claude Code (codex-plugin-cc, a raw `codex exec`) | Environment has `CLAUDECODE=1` (`printenv ORCHESTRA_ROLE CLAUDECODE`) | Executor |
 | The user ran `codex` interactively | None of the above | Main |
 
-Without a prompt marker, check the environment once before your first
-delegation.
+Without a prompt marker, check once before your first delegation:
+`python3 .claude/skills/_shared/orchestra_role.py` prints the role and the
+signal that decided it.
 
 ## Executor
 
@@ -27,7 +28,22 @@ You are Tier 2 `sol` (or the Luna lane, when the caller pinned `gpt-6-luna`).
 - Do the task yourself and report in the format the prompt asks for; the caller
   verifies your result.
 - Never delegate: no `spawn_agent` or other collaboration tools, no
-  `codex_consult.py` (it refuses to run inside an executor), no `cli_consult.py`.
+  `codex_consult.py` or `cli_consult.py`, no `codex` / `claude` / `agy`.
+  Under `codex_consult.py` this is enforced, not requested:
+  - The wrapper registers `.claude/hooks/codex-executor-guard.py` as a
+    PreToolUse hook for every tool (session `--config`) and passes
+    `--dangerously-bypass-hook-trust` so `codex exec` runs it without a trust
+    prompt. It denies collaboration tools and shell commands that start an
+    agent CLI, run a wrapper, or rewrite `ORCHESTRA_ROLE` / `CODEX_HOME` /
+    `CLAUDE_CONFIG_DIR` (no config key removes the collaboration tools in
+    codex-cli 0.162).
+  - Both wrappers exit 1 when `ORCHESTRA_ROLE=executor`.
+  - The executor's shell environment pins `ORCHESTRA_ROLE=executor` and points
+    `CODEX_HOME` / `CLAUDE_CONFIG_DIR` at a path that cannot exist, so a nested
+    `codex` or `claude` fails to start even from a script file the guard
+    cannot read. `agy` has no such switch; the guard is its only layer.
+  - A Codex launched from Claude Code by other means (codex-plugin-cc, a raw
+    `codex exec`) gets none of this: there the role is contract-only.
 - Skip the `context-loader` skill unless the task asks for it: the prompt
   carries the context you need.
 
@@ -83,8 +99,14 @@ route with the table above. The Claude-lead workflows (`feature`, `plan`, `tdd`,
 
 `.codex/config.toml` runs `.claude/hooks/log-cli-tools.py` after every shell
 command, so wrapper calls land in `.claude/logs/cli-tools.jsonl` as they do
-under Claude Code. Codex runs a project hook only after the user trusts it (the
-TUI asks once per hook version); `codex exec` skips untrusted hooks.
+under Claude Code. (The executor guard is not in this file: `codex_consult.py`
+adds it to the runs it starts.) Codex records hook trust per user, as
+`hooks.state."<config path>:<event>:<group>:<handler>".trusted_hash` in
+`~/.codex/config.toml`; nothing in the repository can set it. An interactive
+session therefore logs only after the user accepts "Hooks need review → Trust
+all and continue" once per hook version; `codex exec` skips untrusted hooks
+unless started with `--dangerously-bypass-hook-trust`, as `codex_consult.py`
+does.
 
 ## Model Configuration
 
