@@ -1,0 +1,12 @@
+# Force LF in the working tree regardless of core.autocrlf: the shell scripts
+# (scripts/*.sh, .claude/skills/**/*.sh) and Python hooks break when a CRLF
+# checkout turns "#!/usr/bin/env bash" into "bash\r".
+* text=auto eol=lf
+
+# Binary assets
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pdf binary
