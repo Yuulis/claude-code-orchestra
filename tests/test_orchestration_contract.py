@@ -198,6 +198,7 @@ def test_subagent_schema_directories_hold_no_runtime_content() -> None:
         "settings.local.json",
         "settings.orchestra.json",
         "orchestra-version",
+        "statusline.py",
         "STATE.md",
         "agents",
         "skills",

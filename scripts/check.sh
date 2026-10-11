@@ -367,7 +367,7 @@ check_native_boundaries() {
     local native_entry
     while IFS= read -r native_entry; do
         case "${native_entry}" in
-            settings.json|settings.local.json|settings.orchestra.json|orchestra-version) ;;
+            settings.json|settings.local.json|settings.orchestra.json|orchestra-version|statusline.py) ;;
             agents|skills|rules|hooks|docs|logs|checkpoints|STATE.md) ;;
             *) echo "  Unexpected .claude entry: ${native_entry}"; ok=false ;;
         esac

@@ -4,6 +4,10 @@
   "effortLevel": "high",
   "fastMode": false,
   "alwaysThinkingEnabled": true,
+  "statusLine": {
+    "type": "command",
+    "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/statusline.py\""
+  },
   "hooks": {
     "UserPromptSubmit": [
       {
